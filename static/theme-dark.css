@@ -204,7 +204,9 @@ html.theme-dark .home-feature-card::before{
   content:""; position:absolute; left:0; top:20%; bottom:20%; width:4px; border-radius:0 4px 4px 0;
   background:linear-gradient(180deg,var(--accent-from),var(--accent-to));
 }
-html.theme-dark .home-feature-card:hover{ transform:translateY(-5px) !important; box-shadow:0 8px 40px rgba(93,224,230,0.12) !important; border-color:var(--accent-from) !important; }
+html.theme-dark .home-feature-card:hover{ transform:perspective(760px) rotateX(var(--fx-rotx,0deg)) rotateY(var(--fx-roty,0deg)) translateY(-5px) !important; box-shadow:0 8px 40px rgba(93,224,230,0.12) !important; border-color:var(--accent-from) !important; }
+html.theme-dark .home-feature-card .fc-icon{ transition: transform .45s cubic-bezier(.22,1,.36,1); }
+html.theme-dark .home-feature-card:hover .fc-icon{ transform:translateY(-3px) scale(1.1); }
 html.theme-dark .home-feature-card .fc-title{ color:#fff !important; }
 html.theme-dark .home-feature-card .fc-desc{ color:var(--text-secondary) !important; }
 html.theme-dark .home-feature-card .fc-arrow{ color:var(--accent-from) !important; }

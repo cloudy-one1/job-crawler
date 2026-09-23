@@ -51,16 +51,23 @@
     background:var(--card); border:1px solid var(--line);
     border-radius:16px; padding:26px 22px 22px;
     text-decoration:none; color:var(--ink);
-    transition:.25s ease;
+    transition: transform .45s var(--fx-ease, cubic-bezier(.22,1,.36,1)),
+                box-shadow .45s var(--fx-ease, cubic-bezier(.22,1,.36,1)),
+                border-color .25s ease;
     display:flex; flex-direction:column; gap:6px;
     box-shadow:0 1px 4px rgba(0,0,0,.03);
 }
 .home-feature-card:hover {
-    transform:translateY(-5px);
+    /* 指针倾斜角由 fx.js 写入 --fx-rotx / --fx-roty，静止时即原来的抬升 */
+    transform: perspective(760px) rotateX(var(--fx-rotx, 0deg)) rotateY(var(--fx-roty, 0deg)) translateY(-5px);
     box-shadow:0 10px 28px rgba(0,0,0,.09);
     border-color:var(--accent);
 }
-.home-feature-card .fc-icon { font-size:30px; line-height:1; margin-bottom:2px; }
+.home-feature-card .fc-icon {
+    font-size:30px; line-height:1; margin-bottom:2px;
+    transition: transform .45s var(--fx-ease, cubic-bezier(.22,1,.36,1));
+}
+.home-feature-card:hover .fc-icon { transform: translateY(-3px) scale(1.1); }
 .home-feature-card .fc-title {
     font-size:17px; font-weight:700; font-family:'Noto Serif SC',serif; color:var(--ink);
 }
@@ -83,9 +90,10 @@
 <!-- ===== Hero ===== -->
 <div class="home-wrap fade-up">
     <div class="home-hero">
+        <canvas class="fx-field" data-fx-field aria-hidden="true"></canvas>
 
-        <p class="eyebrow">招聘市场数据分析</p>
-        <h1>招聘信息实时数据分析系统</h1>
+        <p class="eyebrow" data-fx-decode>招聘市场数据分析</p>
+        <h1 data-fx-decode>招聘信息实时数据分析系统</h1>
         <p class="subtitle">一站式查看岗位分布、薪资水平与技能需求，为你的求职决策提供数据支撑</p>
     </div>
 
@@ -150,8 +158,8 @@
         </form>
     </div>
 
-    <!-- ===== 功能入口卡片 ===== -->
-    <div class="home-feature-grid fade-up">
+    <!-- ===== 功能入口卡片（入场由 fx.js 逐张交错触发） ===== -->
+    <div class="home-feature-grid">
         <a href="/chart/city" class="home-feature-card">
             <div class="fc-icon">📊</div>
             <div class="fc-title">图表分析</div>
@@ -173,6 +181,13 @@
     </div>
 </div>
 
+<!-- ===== 实时采集进度遮罩：请求在途时的可见反馈（置于 home-wrap 外，避免被入场动画的 transform 影响定位） ===== -->
+<div id="collect-loading" class="fx-overlay" role="status" aria-live="polite">
+    <div class="fx-uplink"><i></i><i></i><i></i><i></i><i></i></div>
+    <p>正在从 51job 拉取最新招聘数据…</p>
+    <p class="fx-uplink-hint">采集需清空旧数据并重新抓取，请稍候片刻</p>
+</div>
+
 {% endblock %}
 
 {% block scripts %}
@@ -185,6 +200,19 @@
     } else {
         fetch(url, {method:'GET', keepalive:true}).catch(function(){});
     }
+})();
+
+// 实时采集：点击后立即显示进度遮罩，请求在途期间给出可见反馈
+(function collectFeedback(){
+    var form = document.getElementById('mainForm');
+    var overlay = document.getElementById('collect-loading');
+    if (!form || !overlay) return;
+    var btn = form.querySelector('[formaction="/collect"]');
+    if (!btn) return;
+    btn.addEventListener('click', function () {
+        // 只点亮遮罩，绝不 disabled 按钮：那会取消本次表单提交
+        overlay.classList.add('show');
+    });
 })();
 
 const cityMap = {{ city_map_json | safe }};
@@ -251,7 +279,7 @@ function renderTags() {
     } else {
         selWrap.style.display = 'block';
         selectedDiv.innerHTML = selected.map((s, i) =>
-            `<span class="tag-chip">
+            `<span class="tag-chip fx-chip">
                 <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#4a7c59" stroke-width="2.5" style="flex-shrink:0;">
                     <path d="M12 22c-5 0-10-4-10-10S7 2 12 2s10 4 10 10-5 10-10 10z"/>
                     <circle cx="12" cy="12" r="3"/>

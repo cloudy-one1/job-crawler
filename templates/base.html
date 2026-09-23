@@ -212,6 +212,8 @@
       /* 防 FOUC：body 绘制前先套用已记忆的主题，避免闪白 */
       try{ if(localStorage.getItem('theme')==='dark'){ document.documentElement.classList.add('theme-dark'); } }catch(e){}
     </script>
+    <link rel="stylesheet" href="{{ url_for('static', filename='fx-motion.css') }}">
+    <script src="{{ url_for('static', filename='fx.js') }}"></script>
 </head>
 <body>
     <nav class="navbar">

@@ -26,7 +26,7 @@ config.py + data.db     基础设施
 | 分析层 | `analysis/` | 描述性统计，定义统一口径（城市提取、职位分类） | `xinzi.py`、`xueli.py`、`jinyan.py`、`region.py`、`cross.py`、`jobtitle.py`、`wordcloud_gen.py` |
 | 建模层 | `modeling/` | 机器学习与多维分析 | `job_clustering.py`、`salary_classifier.py`、`skill_heatmap.py`、`job_similarity.py`、`salary_curve.py`、`edu_premium.py`、`salary_predict.py` |
 | Agent 层 | `agent/` | LLM 调用封装与工具函数 | `agent_core.py`、`agent_tools.py`、`resume_parser.py` |
-| 展示层 | `app.py`、`templates/`、`static/` | 路由、页面、图表、主题 | — |
+| 展示层 | `app.py`、`templates/`、`static/` | 路由、页面、图表、主题、动效 | — |
 
 ## 数据模型
 
@@ -93,6 +93,16 @@ config.py + data.db     基础设施
 **6. 容错设计**
 
 空数据库首次启动不会崩溃，所有页面给出「请先采集数据」的友好提示，无需预先准备数据。
+
+**7. 前端动效层不引入构建流程**
+
+`static/fx.js` + `static/fx-motion.css` 以零依赖 vanilla 方式实现全站交互动效（滚动入场、磁吸按钮、粒子场、ECharts 入场、解码式 AI 正文），缓动令牌统一为 `cubic-bezier(.22, 1, .36, 1)`。三条硬约束：
+
+- 动效类一律由 JS 注入，禁用 JS 时内容照常完整可见；`prefers-reduced-motion: reduce` 下全部降级为静态终态。
+- JS 只写 `--fx-*` 自定义属性，transform 的组合权留在样式层，避免与米色 / 深色两套主题的 hover 规则互相覆盖。
+- 每个模块独立 try/catch，任一模块抛错不得影响页面内容与其余模块。
+
+新增页面只需继承 `base.html` 即自动获得动效；需要粒子场的页面放 `<canvas data-fx-field>`，需要逐字解码的标题加 `data-fx-decode`。
 
 ## 扩展指引
 

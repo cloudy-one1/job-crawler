@@ -67,8 +67,8 @@
 }
 </style>
 
-<p class="eyebrow">薪资洞察</p>
-<h2 style="margin-bottom:24px; font-size:30px;">岗位聚类分析与薪资洞察</h2>
+<p class="eyebrow" data-fx-decode>薪资洞察</p>
+<h2 style="margin-bottom:24px; font-size:30px;" data-fx-decode>岗位聚类分析与薪资洞察</h2>
 
 <div class="ml-layout">
     <!-- ===== 左侧导航 ===== -->
@@ -151,6 +151,10 @@
 
 {% if clustering %}
 <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
+<script>
+// 在任何 echarts.init 之前接管：统一注入入场动效（时长/缓动/逐项 delay）
+if (window.FX) FX.chartMotion();
+</script>
 <script>
 var IS_DARK, TEXT, SOFT, STAMP, COLORS, HEAT;
 function recalcMlColors() {
@@ -613,7 +617,7 @@ renderEduOverall();
                 font-size:14px; background:var(--card); color:var(--ink); box-sizing:border-box;">
         </div>
         <div style="flex:0 0 auto;">
-            <button id="btn_predict" onclick="predictSalaryBand()"
+            <button id="btn_predict" class="fx-magnet fx-press" onclick="predictSalaryBand()"
                 style="padding:11px 28px; background:var(--stamp); color:#fff; border:none; border-radius:8px;
                 font-size:15px; font-weight:700; cursor:pointer; transition:opacity .2s;">
                 预测薪资档位
@@ -738,9 +742,11 @@ function predictSalaryBand(){
         // 显示结果区域
         var resultDiv = document.getElementById('predict_result');
         resultDiv.style.display = 'block';
+        if (window.FX) FX.replay(resultDiv, 'fx-panel-in');
 
         // 预测档位
         document.getElementById('pred_band_label').textContent = data.predicted_band;
+        if (window.FX) FX.pop(document.getElementById('pred_band_label'));
 
         // 降级提示
         var degraded = data.degraded || {};
@@ -808,10 +814,8 @@ function predictSalaryBand(){
      align-items:center; justify-content:center;">
     <div id="ai_panel" style="background:#FBFAF6; border:1px solid #D7D9CB; border-radius:20px;
          max-width:600px; width:90%; max-height:80vh; overflow-y:auto; padding:32px;
-         box-shadow:0 20px 60px rgba(0,0,0,.15); position:relative;
-         animation: ai-ml-in .3s ease-out;">
+         box-shadow:0 20px 60px rgba(0,0,0,.15); position:relative;">
         <style>
-        @keyframes ai-ml-in { from { opacity:0; transform: scale(.9); } to { opacity:1; transform: scale(1); } }
         @keyframes ai-ml-spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
         #ai_content b { color: #2E6E5E; font-weight: 700; }
         #ai_content ul, #ai_content ol { padding-left: 20px; margin: 8px 0; }
@@ -885,6 +889,12 @@ function formatAIResponse(text){
     return '<p>' + html + '</p>';
 }
 
+// AI 正文写入 + 解码式入场（FX 缺失时退化为直接写入，绝不影响内容显示）
+function renderAIContent(el, htmlText){
+    if (window.FX && FX.setPanel) FX.setPanel(el, htmlText);
+    else el.innerHTML = htmlText;
+}
+
 function showAI(event, section){
     event.preventDefault();
     event.stopPropagation();
@@ -893,6 +903,7 @@ function showAI(event, section){
     var content = document.getElementById('ai_content');
     title.textContent = TITLES[section] || 'AI 深度解读';
     overlay.style.display = 'flex';
+    if (window.FX) { FX.replay(overlay, 'fx-fade-in'); FX.replay(document.getElementById('ai_panel'), 'fx-panel-in'); }
 
     try { sessionStorage.setItem(AI_LAST_KEY, section); } catch(e) {}
 
@@ -905,7 +916,7 @@ function showAI(event, section){
     if (cached) {
         var cachedText = cached;
         setTimeout(function(){
-            content.innerHTML = formatAIResponse(cachedText);
+            renderAIContent(content, formatAIResponse(cachedText));
         }, 2000);
         try { sessionStorage.setItem(AI_LAST_TEXT, cached); } catch(e) {}
         return;
@@ -934,7 +945,7 @@ function showAI(event, section){
         var elapsed = Date.now() - fetchStart;
         var minWait = Math.max(0, 2000 - elapsed);
         setTimeout(function(){
-            content.innerHTML = formatAIResponse(text);
+            renderAIContent(content, formatAIResponse(text));
         }, minWait);
     })
     .catch(function(err){
@@ -1004,8 +1015,9 @@ function fetchAISection(section){
             var content = document.getElementById('ai_content');
             if (!overlay || !title || !content) return;
             title.textContent = TITLES[lastSection] || 'AI 深度解读';
-            content.innerHTML = formatAIResponse(lastText);
+            renderAIContent(content, formatAIResponse(lastText));
             overlay.style.display = 'flex';
+    if (window.FX) { FX.replay(overlay, 'fx-fade-in'); FX.replay(document.getElementById('ai_panel'), 'fx-panel-in'); }
         }, 500);
     }
 })();

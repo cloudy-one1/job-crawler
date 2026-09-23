@@ -73,7 +73,7 @@
         box-shadow: 0 3px 12px rgba(224, 123, 76, 0.35);
     }
     .tab-panel { display: none; }
-    .tab-panel.active { display: block; }
+    .tab-panel.active { display: block; animation: fx-panel-in .36s var(--fx-ease, cubic-bezier(.22,1,.36,1)) both; }
 
     /* ---------- Cards ---------- */
     .warm-card {
@@ -267,13 +267,11 @@
         align-items: center; justify-content: center; flex-direction: column;
     }
     .loading-overlay.show { display: flex; }
-    .loading-spinner {
-        width: 44px; height: 44px; border: 3.5px solid var(--warm-line);
-        border-top-color: var(--warm-primary);
-        border-radius: 50%; animation: spin .75s linear infinite; margin-bottom: 16px;
-    }
-    @keyframes spin { to { transform: rotate(360deg); } }
     .loading-text { font-size: 15px; color: var(--warm-ink-soft); }
+    /* 上传/分析中的指示条沿用本页暖橙主色，而不是全站墨绿/印章红 */
+    #advice-loading .fx-uplink i {
+        background: linear-gradient(180deg, var(--warm-primary), var(--warm-primary-dark));
+    }
 
     /* ---------- Section Divider ---------- */
     .divider-text {
@@ -290,9 +288,9 @@
 </style>
 
 <!-- ====== Hero ====== -->
-<div class="hero">
-    <div class="hero-badge">智能助手</div>
-    <h2>AI 求职顾问</h2>
+<div class="hero fx-panel-in">
+    <div class="hero-badge" data-fx-decode>智能助手</div>
+    <h2 data-fx-decode>AI 求职顾问</h2>
     <p>基于真实招聘数据，AI 为你解读趋势、对比城市岗位、智能匹配心仪职位，助你做出更明智的职业决策。</p>
 </div>
 
@@ -314,7 +312,7 @@
 
 <!-- ====== Loading ====== -->
 <div id="advice-loading" class="loading-overlay">
-    <div class="loading-spinner"></div>
+    <div class="fx-uplink"><i></i><i></i><i></i><i></i><i></i></div>
     <p class="loading-text">AI 正在分析数据，请稍候…</p>
 </div>
 
@@ -353,7 +351,7 @@
 
     {% if answer %}
     <div class="divider-text"><span>AI 回答</span></div>
-    <div class="answer-card" data-md>{{ answer }}</div>
+    <div class="answer-card fx-panel-in" data-md>{{ answer }}</div>
 
     {% if data_context %}
     <div class="divider-text"><span>数据依据</span></div>
@@ -558,7 +556,7 @@
         <button type="button" class="warm-btn" id="compareAiBtn" onclick="analyzeCompare()">🤖 AI 解读对比</button>
         <span id="compareAiLoading" style="display:none; color:var(--warm-ink-soft); font-size:13px; margin-left:10px;">⏳ AI 生成中…</span>
     </div>
-    <div id="compareAiCard" class="answer-card" style="{% if not compare_ai_analysis %}display:none;{% endif %} white-space:pre-wrap;">
+    <div id="compareAiCard" class="answer-card fx-panel-in" style="{% if not compare_ai_analysis %}display:none;{% endif %} white-space:pre-wrap;">
         {% if compare_ai_analysis %}{{ compare_ai_analysis }}{% endif %}
     </div>
     <div id="compareAiError" class="warm-alert" style="display:none;"></div>
@@ -1104,11 +1102,12 @@ function onFileSelected(input) {
     var zone = document.getElementById('upload-zone');
     if (!zone) return;
     var input = document.getElementById('resume-file-input');
-    zone.addEventListener('dragover', function(e) { e.preventDefault(); zone.style.borderColor = 'var(--warm-primary)'; });
-    zone.addEventListener('dragleave', function(e) { e.preventDefault(); zone.style.borderColor = 'var(--warm-line)'; });
+    zone.addEventListener('dragover', function(e) { e.preventDefault(); zone.style.borderColor = 'var(--warm-primary)'; zone.classList.add('fx-dragover'); });
+    zone.addEventListener('dragleave', function(e) { e.preventDefault(); zone.style.borderColor = 'var(--warm-line)'; zone.classList.remove('fx-dragover'); });
     zone.addEventListener('drop', function(e) {
         e.preventDefault();
         zone.style.borderColor = 'var(--warm-line)';
+        zone.classList.remove('fx-dragover');
         if (e.dataTransfer.files.length > 0) {
             input.files = e.dataTransfer.files;
             onFileSelected(input);
@@ -1142,6 +1141,7 @@ function analyzeCompare() {
     .then(function(text) {
         card.textContent = text;
         card.style.display = 'block';
+        if (window.FX) { FX.replay(card, 'fx-panel-in'); FX.decode(card); }
     })
     .catch(function(e) {
         err.textContent = '⚠️ ' + e.message;

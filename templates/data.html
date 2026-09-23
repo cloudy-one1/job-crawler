@@ -38,10 +38,15 @@
     .table th:first-child{ border-top-left-radius:12px; }
     .table th:last-child{ border-top-right-radius:12px; }
 
+    /* 记录数摘要（数字由 fx.js 滚动到位） */
+    .result-line { margin:0 0 20px; font-size:14px; color:var(--ink-soft); }
+    .result-line b { font-size:17px; color:var(--brass); }
+
 </style>
 
-<p class="eyebrow">数据展示</p>
-<h2 style="margin-bottom:18px;">招聘数据档案</h2>
+<p class="eyebrow" data-fx-decode>数据展示</p>
+<h2 style="margin-bottom:6px;" data-fx-decode>招聘数据档案</h2>
+<p class="result-line">共 <b class="mono" data-fx-count>{{ total }}</b> 条岗位记录</p>
 
 <form method="get" action="/list" style="margin-bottom:20px;">
     <div style="display:flex; gap:12px; flex-wrap:wrap; align-items:flex-end;">
@@ -118,6 +123,7 @@ function toggleInterest(jobId, btn) {
     .then(function (d) {
         if (!d || d.error) return;
         btn.classList.toggle('interested', d.interested);
+        if (window.FX) FX.pop(btn);
         var label = btn.querySelector('.interest-label');
         if (label) label.textContent = d.interested ? '已收藏' : '感兴趣';
         var badge = document.getElementById('interested-badge');

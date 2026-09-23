@@ -3,6 +3,14 @@
 本项目所有值得记录的变更都会写在这里，格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
+## [Unreleased]
+
+### 新增
+
+- **前端交互与动效层**（参考 [ThreeUI](https://github.com/MengTo/threeui) 的动效语汇，按零依赖方式移植）：新增 `static/fx.js` + `static/fx-motion.css`，提供滚动入场（IntersectionObserver 同容器交错）、指针磁吸按钮与卡片跟随光斑 / 倾斜、点击涟漪、数字滚动、收藏角标弹跳、导航滚动抬升与顶部阅读进度、首页 Hero 数据粒子场（Canvas 2D，随主题重算配色、离屏与后台自动暂停）。
+- 图表页与薪资洞察页的 ECharts 统一注入入场动画（880ms `quinticOut`，逐项 28ms 递增 delay），AI 解读面板改为解码式逐字呈现；智能助手页 tab 切换加入场面板动画，提交遮罩换成 Uplink 式进度条。缓动令牌统一为 `cubic-bezier(.22, 1, .36, 1)`。
+- 动效全部为渐进增强：类名由 JS 注入，禁用 JS 或 `prefers-reduced-motion: reduce` 时内容照常完整可见；单个模块异常被 try/catch 隔离，不影响页面其余部分。顺带修复窄窗口下固定导航换行遮挡首屏的问题（按导航实际高度同步 `body` 上边距）。
+
 ## [1.0.0] - 2026-07-14
 
 首个正式版本，覆盖「采集 → 清洗 → 分析 → 建模 → AI 建议 → 可视化」完整链路。

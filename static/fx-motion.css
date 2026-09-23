@@ -1,0 +1,253 @@
+/* ============================================================
+   fx-motion.css — 与 fx.js 配套的动效样式层（零依赖）
+
+   约定：
+   · 入场动画一律包在 :where() 里（零特异度），页面自身的 hover 规则永远优先。
+   · JS 只写 --fx-* 自定义属性，transform 的组合权留在样式层，
+     避免行内样式与米色 / 深色两套主题的 hover 规则打架。
+   · 缓动令牌取自 threeui 的动效语汇：spring-ish cubic-bezier(.22,1,.36,1)。
+   ============================================================ */
+
+:root{
+  --fx-ease:      cubic-bezier(.22, 1, .36, 1);
+  --fx-ease-soft: cubic-bezier(.4, 0, .2, 1);
+  --fx-spot:      rgba(196, 79, 58, .12);
+  --fx-ripple:    rgba(31, 35, 32, .14);
+  --fx-progress-a: #2E6E5E;
+  --fx-progress-b: #C44F3A;
+  --fx-halo-a:     rgba(46, 110, 94, .13);
+  --fx-halo-b:     rgba(196, 79, 58, .11);
+}
+html.theme-dark{
+  --fx-spot:      rgba(255, 255, 255, .12);
+  --fx-ripple:    rgba(255, 255, 255, .22);
+  --fx-progress-a: var(--accent-from, #5DE0E6);
+  --fx-progress-b: var(--accent-to, #B48CFF);
+  --fx-halo-a:     rgba(93, 224, 230, .16);
+  --fx-halo-b:     rgba(180, 140, 255, .16);
+}
+
+/* ---------- 1. 滚动入场 ---------- */
+:where(.fx-anim){
+  opacity: 0;
+  transform: translateY(14px);
+  transition: opacity .62s var(--fx-ease), transform .62s var(--fx-ease);
+}
+:where(.fx-anim.fx-in){ opacity: 1; transform: none; }
+:where(.data-row.fx-anim){ transform: translateY(9px); }
+
+/* ---------- 2. 点击涟漪 ---------- */
+.btn, .warm-btn, .pill-btn, .interest-btn, .theme-toggle,
+.add-city-btn, .fx-press{ position: relative; overflow: hidden; }
+
+.fx-ripple{
+  position: absolute;
+  border-radius: 50%;
+  pointer-events: none;
+  background: var(--fx-ripple);
+  transform: scale(0);
+  animation: fx-ripple-out .58s var(--fx-ease-soft) forwards;
+}
+@keyframes fx-ripple-out{
+  from{ transform: scale(0);  opacity: .55; }
+  to  { transform: scale(1);  opacity: 0; }
+}
+
+/* ---------- 3. 按钮磁吸与按压回弹 ---------- */
+.fx-magnet{
+  --fx-tx: 0px;
+  --fx-ty: 0px;
+  transition: transform .2s var(--fx-ease), background .22s ease,
+              box-shadow .28s var(--fx-ease), color .2s ease, border-color .2s ease;
+}
+@media (hover: hover) and (pointer: fine){
+  :where(.fx-magnet):not(:disabled){
+    transform: translate(var(--fx-tx), var(--fx-ty));
+  }
+}
+:where(.btn, .warm-btn, .pill-btn, .interest-btn, .add-city-btn):active{
+  transform: scale(.965);
+  transition-duration: .08s;
+}
+
+/* ---------- 4. 指针光斑 + 卡片倾斜 ---------- */
+.fx-spot{ position: relative; }
+.fx-spot::after{
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity .38s var(--fx-ease-soft);
+  background: radial-gradient(
+    260px circle at var(--fx-mx, 50%) var(--fx-my, 50%),
+    var(--fx-spot), transparent 62%);
+}
+.fx-spot:hover::after{ opacity: 1; }
+/* 让卡片文字始终盖在光斑之上 */
+:where(.fx-spot) > *{ position: relative; z-index: 1; }
+
+/* ---------- 5. 角标弹跳（收藏数反馈） ---------- */
+.fx-pop{ animation: fx-pop .48s var(--fx-ease) both; }
+@keyframes fx-pop{
+  0%  { transform: scale(1); }
+  35% { transform: scale(1.34); }
+  70% { transform: scale(.93); }
+  100%{ transform: scale(1); }
+}
+
+/* ---------- 6. 导航抬升 + 顶部阅读进度 ---------- */
+.navbar{ transition: box-shadow .32s var(--fx-ease-soft), border-color .32s ease; }
+.navbar.fx-scrolled{ box-shadow: 0 8px 26px rgba(0, 0, 0, .08); }
+html.theme-dark .navbar.fx-scrolled{ box-shadow: 0 10px 34px rgba(0, 0, 0, .48); }
+
+#fx-progress{
+  position: fixed;
+  top: 0; left: 0; right: 0;
+  height: 2px;
+  z-index: 101;
+  transform: scaleX(0);
+  transform-origin: 0 50%;
+  opacity: 0;
+  transition: opacity .25s ease;
+  background: linear-gradient(90deg, var(--fx-progress-a), var(--fx-progress-b));
+}
+#fx-progress.fx-visible{ opacity: .95; }
+
+/* ---------- 7. Hero 粒子场与光晕（canvas 失败时仍有背景层次） ---------- */
+.home-hero{ position: relative; }
+.home-hero > *{ position: relative; z-index: 1; }
+.home-hero::before{
+  content: '';
+  position: absolute;
+  inset: -60px -140px;
+  z-index: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(46% 60% at 22% 28%, var(--fx-halo-a), transparent 70%),
+    radial-gradient(42% 56% at 80% 34%, var(--fx-halo-b), transparent 72%);
+  filter: blur(28px);
+  animation: fx-halo-drift 22s var(--fx-ease-soft) infinite alternate;
+}
+@keyframes fx-halo-drift{
+  from{ transform: translate3d(-2%, 0, 0) scale(1); }
+  to  { transform: translate3d(3%, 2%, 0) scale(1.06); }
+}
+.fx-field{
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  display: block;
+  pointer-events: none;
+}
+
+/* ---------- 8. 面板 / 弹层通用入场 ---------- */
+@keyframes fx-panel-in{
+  from{ opacity: 0; transform: translateY(20px) scale(.965); }
+  to  { opacity: 1; transform: none; }
+}
+@keyframes fx-fade-in{
+  from{ opacity: 0; }
+  to  { opacity: 1; }
+}
+.fx-panel-in{ animation: fx-panel-in .44s var(--fx-ease) both; }
+.fx-fade-in { animation: fx-fade-in .3s ease both; }
+
+/* ---------- 9. 城市标签弹入（首页级联选择器） ---------- */
+@keyframes fx-chip-in{
+  from{ opacity: 0; transform: translateY(7px) scale(.86); }
+  to  { opacity: 1; transform: none; }
+}
+.fx-chip{ animation: fx-chip-in .34s var(--fx-ease) both; }
+.fx-chip .tag-remove{ transition: transform .18s var(--fx-ease), color .18s ease; }
+.fx-chip .tag-remove:hover{ transform: rotate(90deg) scale(1.15); }
+
+/* ---------- 10. Uplink 式加载指示（智能助手提交遮罩） ---------- */
+.fx-overlay{
+  position: fixed; inset: 0; z-index: 9999;
+  display: none;
+  flex-direction: column; align-items: center; justify-content: center;
+  background: rgba(252, 250, 246, .82);
+  backdrop-filter: blur(9px); -webkit-backdrop-filter: blur(9px);
+  text-align: center; padding: 24px;
+}
+html.theme-dark .fx-overlay{ background: rgba(22, 26, 51, .82); }
+.fx-overlay.show{ display: flex; animation: fx-fade-in .22s ease both; }
+.fx-overlay .fx-uplink + p{ margin: 0; font-size: 15px; color: var(--ink-soft); }
+.fx-overlay .fx-uplink-hint{ font-size: 12.5px; color: var(--ink-soft); opacity: .8; margin-top: 6px; }
+
+.fx-uplink{
+  display: flex;
+  align-items: flex-end;
+  gap: 5px;
+  height: 28px;
+  margin-bottom: 18px;
+}
+.fx-uplink i{
+  width: 5px;
+  height: 100%;
+  border-radius: 3px;
+  transform-origin: 50% 100%;
+  background: linear-gradient(180deg, var(--fx-progress-a), var(--fx-progress-b));
+  animation: fx-uplink-bar 1.15s var(--fx-ease-soft) infinite;
+}
+.fx-uplink i:nth-child(2){ animation-delay: .11s; }
+.fx-uplink i:nth-child(3){ animation-delay: .22s; }
+.fx-uplink i:nth-child(4){ animation-delay: .33s; }
+.fx-uplink i:nth-child(5){ animation-delay: .44s; }
+@keyframes fx-uplink-bar{
+  0%, 100%{ transform: scaleY(.2);  opacity: .42; }
+  50%     { transform: scaleY(1);   opacity: 1; }
+}
+.loading-text.fx-typing{ animation: fx-fade-in .3s ease both; }
+
+/* 拖拽上传区呼吸 */
+@keyframes fx-pulse-ring{
+  0%  { box-shadow: 0 0 0 0  var(--fx-spot); }
+  100%{ box-shadow: 0 0 0 12px rgba(0, 0, 0, 0); }
+}
+.fx-dragover{ animation: fx-pulse-ring 1.3s var(--fx-ease-soft) infinite; }
+
+/* AI 徽标待机时的微光，提示可点击 */
+.ai-badge{ position: relative; --fx-badge-glow: rgba(46, 110, 94, .35); }
+html.theme-dark .ai-badge{ --fx-badge-glow: rgba(93, 224, 230, .45); }
+.ai-badge::before{
+  content: '';
+  position: absolute;
+  inset: -3px;
+  border-radius: 50%;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity .35s var(--fx-ease-soft);
+  box-shadow: 0 0 0 3px var(--fx-badge-glow);
+}
+.ai-badge:hover::before{ opacity: 1; animation: fx-badge-pulse 1.5s var(--fx-ease-soft) infinite; }
+@keyframes fx-badge-pulse{
+  0%, 100%{ transform: scale(1);    opacity: .85; }
+  50%     { transform: scale(1.12); opacity: .25; }
+}
+
+/* ---------- 11. reduced-motion 全局降级 ---------- */
+@media (prefers-reduced-motion: reduce){
+  :where(.fx-anim){ opacity: 1 !important; transform: none !important; }
+  .home-hero::before,
+  .fx-ripple,
+  .fx-pop,
+  .fx-chip,
+  .fx-uplink i,
+  .fx-dragover,
+  .ai-badge:hover::before{ animation: none !important; }
+  *, *::before, *::after{
+    animation-duration: .001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .001ms !important;
+  }
+}
+
+/* ---------- 12. 打印时不留隐形内容 ---------- */
+@media print{
+  :where(.fx-anim){ opacity: 1 !important; transform: none !important; }
+  #fx-progress, .fx-ripple, .home-hero::before{ display: none !important; }
+  .fx-field{ display: none !important; }
+}
