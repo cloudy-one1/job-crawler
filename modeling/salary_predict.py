@@ -11,6 +11,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import sqlite3
 import config
 from analysis.jobtitle import classify
+from data.exper_parser import normalize_exper
 import numpy as np
 
 
@@ -75,9 +76,9 @@ def lookup_salary_range(city='', category='', edu='', exper=''):
         if edu and edu != '不限':
             if not edu_val or not _contains_word(edu, edu_val):
                 continue
-        # 经验过滤
+        # 经验过滤（统一到 data/exper_parser.py 的档位口径）
         if exper and exper != '经验不限':
-            if not exper_val or not _contains_word(exper, exper_val):
+            if normalize_exper(exper_val) != normalize_exper(exper):
                 continue
         matched.append((smin + smax) / 2)
 

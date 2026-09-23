@@ -98,7 +98,8 @@ job-crawler/
 │
 ├── data/                   # 数据层：采集与清洗
 │   ├── python_job_scraper.py   # 51job 采集（Playwright + stealth）
-│   └── salary_parser.py        # 薪资解析（统一归一化为千元/月）
+│   ├── salary_parser.py        # 薪资解析（统一归一化为千元/月）
+│   └── exper_parser.py         # 经验口径归一（最低年限 → 5 个有序档位）
 │
 ├── analysis/               # 分析层：描述性统计
 │   ├── xinzi.py                # 薪资分段
@@ -124,7 +125,7 @@ job-crawler/
 │
 ├── templates/              # 页面模板（10 个）
 ├── static/                 # 主题样式、前端脚本与动效层（fx.js / fx-motion.css）
-├── tests/                  # 测试（250 个用例）
+├── tests/                  # 测试（301 个用例）
 ├── docs/                   # 文档
 │   ├── ARCHITECTURE.md         # 分层架构、数据模型与关键设计决策
 │   └── CONFIGURATION.md        # 环境变量与配置说明
@@ -142,7 +143,7 @@ job-crawler/
 ## 测试
 
 ```bash
-pytest                       # 全量 250 个用例
+pytest                       # 全量 301 个用例
 pytest tests/test_cross.py   # 单个模块
 ```
 

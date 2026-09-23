@@ -10,6 +10,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import sqlite3
 import config
+from data.exper_parser import EXPER_BUCKETS, normalize_exper
 
 
 def _get_rows():
@@ -34,13 +35,11 @@ def salary_vs_exper():
     }
     """
     rows = _get_rows()
-    exper_order = ['经验不限', '1-3年', '3-5年', '5-10年', '10年以上']
+    exper_order = EXPER_BUCKETS
     exper_data = {e: {'salaries': [], 'count': 0} for e in exper_order}
 
     for smin, smax, edu, exper in rows:
-        exp = exper or '经验不限'
-        if exp not in exper_data:
-            exp = '经验不限'
+        exp = normalize_exper(exper)
         exper_data[exp]['count'] += 1
         if smin or smax:
             exper_data[exp]['salaries'].append((smin + smax) / 2)

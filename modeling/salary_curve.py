@@ -12,29 +12,15 @@ import config
 import logging
 import numpy as np
 
-_logger = logging.getLogger('modeling.salary_curve')
+from data.exper_parser import EXPER_ORDER, normalize_exper
 
-# 经验等级排序映射
-EXPER_ORDER = {
-    '经验不限': 0, '不限': 0,
-    '应届毕业生': 1, '应届生': 1, '应届': 1,
-    '1年': 2, '1-3年': 3, '1-3年经验': 3,
-    '2年': 4,
-    '3-4年': 5, '3-5年': 6, '3-5年经验': 6,
-    '5-7年': 7, '5-10年': 8, '5-10年经验': 8,
-    '8-9年': 9,
-    '10年以上': 10, '10年以上经验': 10,
-}
+_logger = logging.getLogger('modeling.salary_curve')
 
 
 def _normalize_exper(exper_raw):
-    """将经验字符串标准化为排序键 + 显示标签。"""
-    if not exper_raw:
-        return (0, '未知')
-    for key, order in sorted(EXPER_ORDER.items(), key=lambda x: -len(x[0])):
-        if key in exper_raw:
-            return (order, key)
-    return (0, exper_raw)
+    """经验文本 → (排序键, 统一档位标签)，口径见 data/exper_parser.py。"""
+    label = normalize_exper(exper_raw)
+    return (EXPER_ORDER[label], label)
 
 
 def compute_salary_curve(min_per_level=3):

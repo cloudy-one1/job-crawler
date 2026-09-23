@@ -6,6 +6,9 @@
 
 表结构与 app.init_db() 的完整 schema 保持一致（含 company/dateT/keywords），
 保证 analysis / modeling / agent 各函数的查询不会因缺列或空表而失败。
+
+exper 取值必须覆盖 51job 线上真实的两类写法（「1-3年」区间式与「3年及以上」下限式），
+否则口径回归只能在库里发现，测试全绿也接不住。
 """
 import os
 import sqlite3
@@ -54,6 +57,25 @@ _ROWS = [
     ('Web前端开发', '云帆科技', '北京-海淀区', 12.0, 22.0, '2026-07-05', '本科', '3-5年',
      '中后台前端组件库建设,React Vue TypeScript CSS Node.js', 'React,Vue,TypeScript,CSS',
      'https://jobs.51job.com/test/10.html'),
+    # 以下为 51job 的「下限式」经验写法，口径回归用例依赖它们
+    ('Python后端开发', '江畔信息', '杭州-滨江区', 18.0, 30.0, '2026-07-06', '本科', '3年及以上',
+     '服务端接口设计与性能优化,Python FastAPI MySQL Redis', 'Python,FastAPI,MySQL,Redis',
+     'https://jobs.51job.com/test/11.html'),
+    ('推荐算法工程师', '极光智能', '北京-朝阳区', 25.0, 45.0, '2026-07-06', '硕士', '5年及以上',
+     '推荐系统建模与大规模特征工程,Python PyTorch Spark', 'Python,PyTorch,Spark',
+     'https://jobs.51job.com/test/12.html'),
+    ('数据分析师', '云帆科技', '上海-浦东新区', 11.0, 18.0, '2026-07-07', '本科', '1年及以上',
+     '业务指标体系与取数看板建设,SQL Python Excel', 'SQL,Python,Excel',
+     'https://jobs.51job.com/test/13.html'),
+    ('运维工程师', '深蓝数据', '深圳-南山区', 9.0, 14.0, '2026-07-07', '大专', '无需经验',
+     '基础监控告警值守与发布配合,Linux Shell Docker', 'Linux,Shell,Docker',
+     'https://jobs.51job.com/test/14.html'),
+    ('Java后端开发', '星河软件', '成都-高新区', 10.0, 16.0, '2026-07-08', '本科', '在校生/应届生',
+     '校招储备轮岗培养,Java Spring Boot MySQL', 'Java,Spring Boot,MySQL',
+     'https://jobs.51job.com/test/15.html'),
+    ('前端开发工程师', '灵犀互动', '广州-天河区', 14.0, 22.0, '2026-07-08', '本科', '2年及以上',
+     '活动页与组件库迭代开发,React TypeScript Webpack', 'React,TypeScript,Webpack',
+     'https://jobs.51job.com/test/16.html'),
 ]
 
 

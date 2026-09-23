@@ -18,7 +18,7 @@ import numpy as np
 
 import config
 from analysis.jobtitle import classify as _classify
-from modeling.salary_curve import EXPER_ORDER
+from data.exper_parser import EXPER_ORDER, normalize_exper
 
 _logger = logging.getLogger('modeling.salary_classifier')
 
@@ -93,16 +93,6 @@ def _normalize_edu(edu_raw):
         if key in edu_lower:
             return key
     return '不限'
-
-
-def _normalize_exper(exper_raw):
-    """将经验字符串标准化为 EXPER_ORDER 排序键。"""
-    if not exper_raw:
-        return '经验不限'
-    for key in sorted(EXPER_ORDER.keys(), key=lambda k: -len(k)):
-        if key in exper_raw:
-            return key
-    return '经验不限'
 
 
 def _extract_city(address):
@@ -187,7 +177,7 @@ def _build_features(rows, skill_vocab=None):
 
         city = _extract_city(row['address'])
         edu = _normalize_edu(row['edu'])
-        exper = _normalize_exper(row['exper'])
+        exper = normalize_exper(row['exper'])
         category = _classify(row['post'] or '')
         skills = _extract_skills_from_keywords(row['keywords'])
         band_idx = _get_band_index(salary_mid)
@@ -541,7 +531,7 @@ def predict_salary_band(pkg, city='', edu='', exper='', skills=None):
 
     # 归一化输入
     edu_norm = _normalize_edu(edu) if edu else '不限'
-    exper_norm = _normalize_exper(exper) if exper else '经验不限'
+    exper_norm = normalize_exper(exper) if exper else '经验不限'
 
     # 技能处理
     if isinstance(skills, str):

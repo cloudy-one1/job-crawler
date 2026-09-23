@@ -5,8 +5,15 @@
 
 ## [Unreleased]
 
+### 修复
+
+- **经验字段口径错配**：51job 现用「3年及以上」下限式写法，而 `analysis/cross.py`、`modeling/salary_curve.py`、`modeling/salary_classifier.py` 各自维护一份「1-3年」区间式映射表，新写法无法命中而统一兜底成「经验不限」——「薪资 × 经验」交叉图 849/960（88.4%）、分类器特征 551/960（57.4%）被错误归档。新增 `data/exper_parser.py` 作为全项目唯一口径（按文本最低年限归入 5 个有序档位），三处消费方改为共用，库里仍保留原始文本以便口径再变时无需重采。
+- `modeling/salary_predict.py` 的经验筛选改用同一档位口径，按「3-5年」筛选现能命中写作「3年及以上」的岗位。
+- 薪资档位分类器随新口径重训：test accuracy 0.422 → 0.438，macro-F1 0.361 → 0.386（同一数据、同一划分）。
+
 ### 新增
 
+- 测试夹具补充「X年及以上」「无需经验」「在校生/应届生」等线上真实写法（10 → 16 条），并新增 `tests/test_exper_parser.py` 固化库中出现过的全部 36 种经验写法的映射；用例 250 → 301。此前夹具只用旧口径，故 250 条全绿仍漏掉了这次的数据漂移。
 - **前端交互与动效层**（参考 [ThreeUI](https://github.com/MengTo/threeui) 的动效语汇，按零依赖方式移植）：新增 `static/fx.js` + `static/fx-motion.css`，提供滚动入场（IntersectionObserver 同容器交错）、指针磁吸按钮与卡片跟随光斑 / 倾斜、点击涟漪、数字滚动、收藏角标弹跳、导航滚动抬升与顶部阅读进度、首页 Hero 数据粒子场（Canvas 2D，随主题重算配色、离屏与后台自动暂停）。
 - 图表页与薪资洞察页的 ECharts 统一注入入场动画（880ms `quinticOut`，逐项 28ms 递增 delay），AI 解读面板改为解码式逐字呈现；智能助手页 tab 切换加入场面板动画，提交遮罩换成 Uplink 式进度条。缓动令牌统一为 `cubic-bezier(.22, 1, .36, 1)`。
 - 动效全部为渐进增强：类名由 JS 注入，禁用 JS 或 `prefers-reduced-motion: reduce` 时内容照常完整可见；单个模块异常被 try/catch 隔离，不影响页面其余部分。顺带修复窄窗口下固定导航换行遮挡首屏的问题（按导航实际高度同步 `body` 上边距）。

@@ -22,7 +22,7 @@ config.py + data.db     基础设施
 
 | 层 | 目录 | 职责 | 关键模块 |
 |----|------|------|----------|
-| 数据层 | `data/` | 采集与清洗，产出标准化记录 | `python_job_scraper.py`、`salary_parser.py` |
+| 数据层 | `data/` | 采集与清洗，产出标准化记录 | `python_job_scraper.py`、`salary_parser.py`、`exper_parser.py` |
 | 分析层 | `analysis/` | 描述性统计，定义统一口径（城市提取、职位分类） | `xinzi.py`、`xueli.py`、`jinyan.py`、`region.py`、`cross.py`、`jobtitle.py`、`wordcloud_gen.py` |
 | 建模层 | `modeling/` | 机器学习与多维分析 | `job_clustering.py`、`salary_classifier.py`、`skill_heatmap.py`、`job_similarity.py`、`salary_curve.py`、`edu_premium.py`、`salary_predict.py` |
 | Agent 层 | `agent/` | LLM 调用封装与工具函数 | `agent_core.py`、`agent_tools.py`、`resume_parser.py` |
@@ -41,7 +41,7 @@ config.py + data.db     基础设施
 | `salary_min` / `salary_max` | REAL | 薪资区间，单位**千元/月**（由 `salary_parser` 归一化） |
 | `dateT` | TEXT | 发布日期 |
 | `edu` | TEXT | 学历要求 |
-| `exper` | TEXT | 经验要求 |
+| `exper` | TEXT | 经验要求原始文本（51job `workYearString`），统计时按 `data/exper_parser.py` 归一为 5 档 |
 | `content` | TEXT | 岗位描述原文 |
 | `keywords` | TEXT | 51job 官方 jobTags，词云与技能分析的输入 |
 | `job_url` | TEXT | 原文链接 |
@@ -94,7 +94,13 @@ config.py + data.db     基础设施
 
 空数据库首次启动不会崩溃，所有页面给出「请先采集数据」的友好提示，无需预先准备数据。
 
-**7. 前端动效层不引入构建流程**
+**7. 字段口径统一在数据层定义**
+
+`data/salary_parser.py` 归一薪资，`data/exper_parser.py` 归一经验。库里存原始文本（51job 的措辞会变），分析层与建模层共用同一份映射，不要在下层再抄一份。
+
+`exper_parser` 取文本中的最低年限归档：51job 同时使用「3-5年」区间式与「3年及以上」下限式两种写法，按下限归一才能让它们在同一档比较。
+
+**8. 前端动效层不引入构建流程**
 
 `static/fx.js` + `static/fx-motion.css` 以零依赖 vanilla 方式实现全站交互动效（滚动入场、磁吸按钮、粒子场、ECharts 入场、解码式 AI 正文），缓动令牌统一为 `cubic-bezier(.22, 1, .36, 1)`。三条硬约束：
 

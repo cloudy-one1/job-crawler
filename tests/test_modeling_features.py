@@ -227,12 +227,19 @@ class TestSalaryCurve:
         o4, _ = _normalize_exper('经验不限')
         assert o4 < o2
 
-    def test_normalize_exper_unknown(self):
-        """未知经验字符串返回 (0, raw)。"""
+    def test_normalize_exper_unparseable_defaults_to_不限(self):
+        """无法解析出年限的写法并入'经验不限'，不再自成档位。"""
         from modeling.salary_curve import _normalize_exper
-        order, label = _normalize_exper('随便写的')
-        assert order == 0
-        assert label == '随便写的'
+        assert _normalize_exper('随便写的') == (0, '经验不限')
+        assert _normalize_exper('无需经验') == (0, '经验不限')
+        assert _normalize_exper(None) == (0, '经验不限')
+
+    def test_normalize_exper_lower_bound_wording(self):
+        """51job 的「X年及以上」按下限归档，与区间式写法同档可比。"""
+        from modeling.salary_curve import _normalize_exper
+        assert _normalize_exper('3年及以上') == (2, '3-5年')
+        assert _normalize_exper('5年及以上') == (3, '5-10年')
+        assert _normalize_exper('1年及以上') == (1, '1-3年')
 
     def test_basic_curve_structure(self, monkeypatch):
         """有数据时应返回 overall 和 by_city。"""

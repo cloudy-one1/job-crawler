@@ -267,10 +267,12 @@ class TestHelpers:
         assert _normalize_edu(None) == '不限'
 
     def test_normalize_exper(self):
-        from modeling.salary_classifier import _normalize_exper
-        assert '1-3年' in _normalize_exper('1-3年经验')
-        assert _normalize_exper('') == '经验不限'
-        assert _normalize_exper(None) == '经验不限'
+        """分类器使用的经验口径统一来自 data/exper_parser.py。"""
+        from modeling.salary_classifier import normalize_exper
+        assert normalize_exper('1-3年经验') == '1-3年'
+        assert normalize_exper('3年及以上') == '3-5年'
+        assert normalize_exper('') == '经验不限'
+        assert normalize_exper(None) == '经验不限'
 
     def test_extract_city(self):
         from modeling.salary_classifier import _extract_city
