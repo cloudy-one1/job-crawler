@@ -38,6 +38,22 @@
 
 > **容错**：空数据库首次启动不会崩溃，所有页面友好提示「请先采集数据」，无需预先准备任何数据。
 
+## 界面预览
+
+> 截图为本地已采集数据下的实际运行效果，页面数值随每次采集整表更新。
+
+**首页 · 查询与采集**
+
+<img src="docs/images/home.jpg" width="880" alt="首页：岗位关键词与城市选择、实时采集入口">
+
+| 图表分析 · 城市分布 | 图表分析 · 高频热词 |
+|:---:|:---:|
+| <img src="docs/images/chart-city.jpg" width="430" alt="城市职位数量分布地图"> | <img src="docs/images/chart-wordcloud.jpg" width="430" alt="高频热词词云与 TOP 20 关键词表"> |
+
+| 薪资洞察 · 预测模型 | 深色主题 |
+|:---:|:---:|
+| <img src="docs/images/ml-model.jpg" width="430" alt="薪资档位模型的准确率、特征重要性与档位分布"> | <img src="docs/images/theme-dark.jpg" width="430" alt="深色主题下的图表分析页"> |
+
 ## 快速开始
 
 ### 环境要求
@@ -128,7 +144,8 @@ job-crawler/
 ├── tests/                  # 测试（301 个用例）
 ├── docs/                   # 文档
 │   ├── ARCHITECTURE.md         # 分层架构、数据模型与关键设计决策
-│   └── CONFIGURATION.md        # 环境变量与配置说明
+│   ├── CONFIGURATION.md        # 环境变量与配置说明
+│   └── images/                 # README 界面预览截图
 ├── .github/                # CI 工作流、issue / PR 模板
 └── data.db                 # SQLite 数据库（运行时生成，不入库）
 ```
