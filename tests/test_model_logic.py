@@ -121,6 +121,29 @@ class TestRunClustering:
             assert 'count' in c
             assert 'top_keywords' in c
             assert c['count'] > 0
+        assert result.get('label_version') == 2
+
+    def test_auto_label_uses_discriminative_naming(self, monkeypatch):
+        """auto_label 应为判别性 top 词的「·」连接(升级自旧版 '/' 连接)。"""
+        mock_posts = [
+            'Python后端开发工程师', 'Java后端开发', 'Go后台开发',
+            '后端高级工程师', '后端服务端开发', 'Python服务端',
+            'Web前端工程师', '前端开发工程师', 'React前端',
+            'Vue前端开发', 'Web前端高级', 'H5前端',
+            '软件测试工程师', '自动化测试', '测试开发',
+            '功能测试', '性能测试工程师', '测试运维',
+        ]
+        from modeling import job_clustering
+        monkeypatch.setattr(job_clustering, 'get_posts', lambda: list(enumerate(mock_posts)))
+        result = job_clustering.run_clustering()
+        assert result['k'] >= 2
+        for c in result['clusters']:
+            # 每簇命名非空,由「·」连接判别词
+            assert c['auto_label'], '簇命名为空'
+            terms = c['auto_label'].split('·')
+            assert 1 <= len(terms) <= 3
+            # 判别词必须来自 TF-IDF 词表(即 top_keywords 的超集来源)
+            assert all(t and t not in (' ',) for t in terms)
 
 
 

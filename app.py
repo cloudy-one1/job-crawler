@@ -67,7 +67,7 @@ _logger.addHandler(_console_handler)
 
 # --- 数据层 ---
 from data.python_job_scraper import scrape_jobs
-from data.salary_parser import parse_salary
+from data.job_store import ensure_schema, upsert_jobs
 
 # --- 聚类模型懒加载（无薪资预测模型） ---
 
@@ -123,35 +123,14 @@ _review_store = {}                    # 简历审查结果持久化(体积大, �
 
 # --- 数据库迁移 ----------------------------------------------------------------
 def init_db():
-    """初始化数据库，确保包含所有必要字段（含新增的 keywords）"""
+    """初始化数据库(建表/补列/唯一索引),schema 统一由 data.job_store 维护。"""
     try:
+        from data.job_store import ensure_schema as _ensure_schema
         db = sqlite3.connect(config.DB_PATH)
-        cursor = db.cursor()
-        
-        # 检查 data 表是否存在
-        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='data'")
-        if not cursor.fetchone():
-            # 表不存在，创建新表
-            cursor.execute("""
-                CREATE TABLE data (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    post TEXT, company TEXT, address TEXT,
-                    salary_min REAL, salary_max REAL,
-                    dateT TEXT, edu TEXT, exper TEXT, content TEXT,
-                    keywords TEXT, job_url TEXT
-                )
-            """)
-        else:
-            # 表存在，检查是否有新字段
-            cursor.execute("PRAGMA table_info(data)")
-            columns = [row[1] for row in cursor.fetchall()]
-            if 'job_url' not in columns:
-                cursor.execute("ALTER TABLE data ADD COLUMN job_url TEXT")
-            if 'keywords' not in columns:
-                cursor.execute("ALTER TABLE data ADD COLUMN keywords TEXT")
-                
-        db.commit()
-        db.close()
+        try:
+            _ensure_schema(db)
+        finally:
+            db.close()
         _logger.info('数据库初始化完成')
     except Exception as e:
         _logger.error('数据库初始化失败: %s', e)
@@ -211,8 +190,10 @@ def _load_or_train_models():
     try:
         if os.path.exists(_cluster_path):
             cluster = _joblib.load(_cluster_path)
-            if not _cluster_cache_has_job_ids(cluster):
-                _logger.info('检测到旧版聚类缓存缺少 job_ids,将重新训练')
+            # label_version 不匹配(如命名口径升级)视为旧缓存,重训
+            if not (_cluster_cache_has_job_ids(cluster)
+                    and cluster.get('label_version') == CLUSTERING_LABEL_VERSION):
+                _logger.info('检测到旧版聚类缓存(缺 job_ids 或命名口径旧),将重新训练')
                 cluster = None
             else:
                 _logger.info('从磁盘加载聚类结果 (k=%d)', cluster['k'])
@@ -256,6 +237,29 @@ def _invalidate_chart_analysis_cache():
     _logger.debug('图表 AI 分析缓存 + 数据缓存 + /ml 分析缓存 + 城市对比 AI 解读缓存已清空')
 
 
+def _salary_max_info():
+    """当前库中薪资最高的岗位,用于薪资分布页的离群说明;空库返回 None。"""
+    try:
+        conn = _raw_connect()
+        conn.row_factory = sqlite3.Row
+        row = conn.execute(
+            "SELECT post, company, salary_max FROM data "
+            "WHERE salary_max IS NOT NULL ORDER BY salary_max DESC LIMIT 1"
+        ).fetchone()
+        conn.close()
+        if not row or not row['salary_max']:
+            return None
+        return {
+            'max_k': round(float(row['salary_max']), 1),
+            'post': row['post'] or '未知岗位',
+            'company': row['company'] or '未知公司',
+            # 只有当最高薪明显高于主体分布(≥10 万/月)时才值得提示
+            'is_outlier': float(row['salary_max']) >= 100,
+        }
+    except sqlite3.Error:
+        return None
+
+
 def _compute_chart_data():
     """计算图表所需全部统计数据（带 5 分钟缓存）。"""
     global _chart_data_cache
@@ -278,6 +282,7 @@ def _compute_chart_data():
         'cross_exper': cross.salary_vs_exper(),
         'cross_edu': cross.salary_vs_edu(),
         'wc_data': generate_wordcloud_data(top_n=60),
+        'salary_max_info': _salary_max_info(),
     }
     _logger.info('图表数据缓存已更新')
     _chart_data_cache = (now, data)
@@ -360,6 +365,10 @@ def _get_edu_premium():
     return _edu_premium_cache
 
 
+CLUSTERING_LABEL_VERSION = 2  # 聚类结果包版本: 2 = c-TF-IDF 判别性命名
+CLASSIFIER_PKG_VERSION = 2  # 分类器结果包口径版本: 2 = content 特征 + 有序指标(mae/相邻准确率)
+
+
 def _get_salary_classifier():
     """获取薪资档位分类模型（懒加载+缓存+joblib持久化）。"""
     global _salary_classifier_cache
@@ -374,12 +383,15 @@ def _get_salary_classifier():
         if os.path.exists(_classifier_path):
             import joblib as _joblib
             pkg = _joblib.load(_classifier_path)
-            if isinstance(pkg, dict) and '_model' in pkg:
+            # pkg_version 不匹配说明是旧特征/旧指标口径的缓存,强制重训
+            if isinstance(pkg, dict) and '_model' in pkg \
+                    and pkg.get('pkg_version') == CLASSIFIER_PKG_VERSION:
                 _logger.info('从磁盘加载薪资分类器 (model=%s, n=%d)',
                              pkg.get('metrics', {}).get('model_name', '?'),
                              pkg.get('total_rows', 0))
                 _salary_classifier_cache = pkg
                 return pkg
+            _logger.info('检测到旧版薪资分类器缓存,将重新训练')
     except Exception as e:
         _logger.warning('薪资分类器磁盘加载失败: %s', e)
 
@@ -1017,25 +1029,13 @@ def collect():
 
     # 提前打开DB连接,用于增量保存回调(每城市采完就写,防Ctrl+C丢数据)
     db = get_db()
-    cursor = db.cursor()
-    incremental_success = [0]  # 用list以便在闭包中修改
+    incremental_stats = {'inserted': 0, 'updated': 0, 'skipped': 0}
 
     def save_callback(city, city_jobs):
-        """每采集完一个城市就增量写入DB"""
-        for j in city_jobs:
-            smin, smax = parse_salary(j['salary_raw'])
-            try:
-                cursor.execute(
-                    "insert into data (post,company,address,salary_min,salary_max,"
-                    "dateT,edu,exper,content,keywords,job_url) values(?,?,?,?,?,?,?,?,?,?,?)",
-                    (j['post'], j['company'], j['address'], smin, smax,
-                     j['dateT'], j['edu'], j['exper'], j.get('content', ''),
-                     j.get('keywords', ''), j.get('job_url', ''))
-                )
-                incremental_success[0] += 1
-            except Exception:
-                pass
-        db.commit()  # 每个城市提交一次,确保数据持久化
+        """每采集完一个城市就增量入库(upsert,不覆盖历史数据)"""
+        stats = upsert_jobs(db, city_jobs)
+        for k in incremental_stats:
+            incremental_stats[k] += stats[k]
 
     try:
         jobs, pages_collected = scrape_jobs(
@@ -1045,12 +1045,16 @@ def collect():
     except Exception as e:
         _logger.error('采集异常: %s', e)
         # 即使异常中断,已采集的数据已通过save_callback写入
-        if incremental_success[0] > 0:
-            _logger.info('中断前已增量保存 %d 条数据', incremental_success[0])
+        if incremental_stats['inserted'] + incremental_stats['updated'] > 0:
+            _logger.info('中断前已增量入库 %d 条数据',
+                         incremental_stats['inserted'] + incremental_stats['updated'])
         return render_template('collect.html', error='采集过程发生错误,请稍后重试',
                                 keyword=keyword, city=city_raw)
 
-    success = incremental_success[0]
+    success = incremental_stats['inserted'] + incremental_stats['updated']
+    _logger.info('采集完成: 新增 %d, 更新 %d, 排除(面议/重复解析失败) %d',
+                 incremental_stats['inserted'], incremental_stats['updated'],
+                 incremental_stats['skipped'])
 
     if success == 0:
         return render_template(
@@ -1058,15 +1062,6 @@ def collect():
             error='没有采集到任何数据,可能是WAF拦截了这次请求,或者关键词/城市没有匹配结果,换个关键词或稍后再试',
             keyword=keyword, city=city_raw,
         )
-
-    # 增量写入完成后,清理旧数据(只保留新写入的)
-    if success > 0:
-        cursor.execute(
-            "DELETE FROM data WHERE rowid NOT IN "
-            "(SELECT rowid FROM data ORDER BY rowid DESC LIMIT ?)",
-            (success,)
-        )
-    db.commit()
 
     # 数据变了，图表 AI 缓存 + 模型缓存都要失效
     _invalidate_chart_analysis_cache()
@@ -1097,6 +1092,9 @@ def collect():
     session['collect_state'] = {
         'success_count': success,
         'total_count': len(jobs),
+        'inserted_count': incremental_stats['inserted'],
+        'updated_count': incremental_stats['updated'],
+        'skipped_count': incremental_stats['skipped'],
         'keyword': keyword,
         'city': city_raw,
         'pages_per_city': pages,
@@ -1105,6 +1103,9 @@ def collect():
 
     return render_template(
         'collect.html', success_count=success, total_count=len(jobs),
+        inserted_count=incremental_stats['inserted'],
+        updated_count=incremental_stats['updated'],
+        skipped_count=incremental_stats['skipped'],
         keyword=keyword, city=city_raw,
         pages_per_city=pages, pages_collected=pages_collected,
     )

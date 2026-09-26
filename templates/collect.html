@@ -18,7 +18,14 @@
 <div class="alert alert-info">
     采集完成: 关键词"{{ keyword }}"{% if city %} · 城市"{{ city }}"{% endif %},
     共抓到 {{ total_count }} 条,成功写入数据库 <span class="mono">{{ success_count }}</span> 条
+    {% if inserted_count is defined and updated_count is defined %}
+    (新增 <span class="mono">{{ inserted_count }}</span> ·
+    更新 <span class="mono">{{ updated_count }}</span>{% if skipped_count %} ·
+    排除面议/无法解析 <span class="mono">{{ skipped_count }}</span>{% endif %}),
+    历史数据已保留,多次采集可观察薪资趋势。
+    {% else %}
     (已更新最新数据)。
+    {% endif %}
     {% if pages_collected and pages_per_city %}
     <br>
     <small style="color:#666;">

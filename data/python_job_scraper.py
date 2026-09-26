@@ -1255,7 +1255,7 @@ def scrape_jobs(keyword, cities, pages_per_city=3, sort_type='0', progress_callb
 if __name__ == '__main__':
     import sqlite3
     import config
-    from data.salary_parser import parse_salary
+    from data.job_store import ensure_schema, upsert_jobs
 
     jobs, pages_collected = scrape_jobs(
         keyword='python',
@@ -1270,43 +1270,12 @@ if __name__ == '__main__':
     if not jobs:
         print("没有采集到数据,可能是WAF拦截了这次请求")
     else:
+        # 命令行与网页 /collect 路由共用同一套落库口径:
+        # 建表/补列/唯一索引 + 按 job_url 增量合并(面议排除、重复岗位收敛),
+        # 不再清空旧数据 —— 多次采集自然按 collected_at 形成多期数据。
         db = sqlite3.connect(config.DB_PATH)
-        cursor = db.cursor()
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS data (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                post TEXT, company TEXT, address TEXT,
-                salary_min REAL, salary_max REAL,
-                dateT TEXT, edu TEXT, exper TEXT, content TEXT,
-                keywords TEXT, job_url TEXT
-            )
-        """)
-        # 兼容旧表: 确保 keywords 和 job_url 字段存在
-        cursor.execute("PRAGMA table_info(data)")
-        existing_cols = [r[1] for r in cursor.fetchall()]
-        if 'keywords' not in existing_cols:
-            cursor.execute("ALTER TABLE data ADD COLUMN keywords TEXT")
-        if 'job_url' not in existing_cols:
-            cursor.execute("ALTER TABLE data ADD COLUMN job_url TEXT")
-        # 每次新采集前清空旧数据,与网页 /collect 路由的行为保持一致,
-        # 避免同一份数据出现"命令行跑出来一套、网页跑出来另一套"的不一致情况
-        cursor.execute("DELETE FROM data")
-
-        success = 0
-        for j in jobs:
-            smin, smax = parse_salary(j['salary_raw'])
-            try:
-                cursor.execute(
-                    "insert into data (post,company,address,salary_min,salary_max,"
-                    "dateT,edu,exper,content,keywords,job_url) values(?,?,?,?,?,?,?,?,?,?,?)",
-                    (j['post'], j['company'], j['address'], smin, smax,
-                     j['dateT'], j['edu'], j['exper'], j.get('content', ''),
-                     j.get('keywords', ''), j.get('job_url', ''))
-                )
-                success += 1
-            except Exception as e:
-                print('插入失败:', j, e)
-
-        db.commit()
+        ensure_schema(db)
+        stats = upsert_jobs(db, jobs)
         db.close()
-        print(f"已写入数据库: 成功 {success} 条 (保存在 {config.DB_PATH})")
+        print(f"已写入数据库: 新增 {stats['inserted']} 条, 更新 {stats['updated']} 条, "
+              f"排除 {stats['skipped']} 条 (保存在 {config.DB_PATH})")

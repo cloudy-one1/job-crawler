@@ -5,13 +5,19 @@
 流程：DB 读取 → 特征工程 → cross_val 选优(RF/GB/Logistic) →
 joblib 持久化 → predict() 推理（含优雅降级）。
 
-与现有 clustering 模型一样的懒加载范式：
-  首次调用时训练+落盘，后续直接加载缓存。
+技能词有两个来源,统一汇入同一份词表做 one-hot:
+- keywords 字段(51job 官方 jobTags, 逗号分隔)
+- content 职位描述全文(CONTENT_SKILL_PATTERNS 词典抽取,
+  覆盖 jobTags 没写到但描述里明确要求的技能)
+
+档位是有序标签,评估除 accuracy/macro-F1 外,同时输出
+mae_bands(档位平均绝对误差)与 adjacent_acc(误差≤1档的比例)。
 """
 import sys
 import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+import re
 import sqlite3
 import logging
 import numpy as np
@@ -110,6 +116,77 @@ def _extract_skills_from_keywords(keywords_str):
     return [p for p in parts if len(p) >= 2]
 
 
+# ============================================================
+# 职位描述(content)技能词典 — 补足 jobTags 没覆盖的技术要求
+# ============================================================
+# 值为正则(大小写不敏感),键为归一化后的技能名(进 one-hot 词表)。
+# 只收录"描述里出现即代表确实要求该技能"的词,避免泛词稀释特征。
+CONTENT_SKILL_PATTERNS = {
+    'sql': re.compile(r'\bsql\b', re.I),
+    'mysql': re.compile(r'\bmysql\b', re.I),
+    'postgresql': re.compile(r'postgres', re.I),
+    'mongodb': re.compile(r'mongodb', re.I),
+    'redis': re.compile(r'\bredis\b', re.I),
+    'elasticsearch': re.compile(r'elastic|es\b', re.I),
+    'linux': re.compile(r'\blinux\b', re.I),
+    'docker': re.compile(r'docker|容器化', re.I),
+    'kubernetes': re.compile(r'k8s|kubernetes', re.I),
+    'git': re.compile(r'\bgit\b|gitlab|github', re.I),
+    'django': re.compile(r'django', re.I),
+    'flask': re.compile(r'flask', re.I),
+    'fastapi': re.compile(r'fastapi', re.I),
+    'django-rest': re.compile(r'django\s*rest|drf\b', re.I),
+    'celery': re.compile(r'celery', re.I),
+    'pandas': re.compile(r'pandas', re.I),
+    'numpy': re.compile(r'numpy', re.I),
+    'spark': re.compile(r'spark', re.I),
+    'hadoop': re.compile(r'hadoop|hive|hbase', re.I),
+    'flink': re.compile(r'flink', re.I),
+    'kafka': re.compile(r'kafka', re.I),
+    'rabbitmq': re.compile(r'rabbitmq|rocketmq|消息队列', re.I),
+    'pytorch': re.compile(r'pytorch|torch\b', re.I),
+    'tensorflow': re.compile(r'tensorflow|keras', re.I),
+    'sklearn': re.compile(r'scikit-learn|sklearn', re.I),
+    '机器学习': re.compile(r'机器学习|machine\s*learning', re.I),
+    '深度学习': re.compile(r'深度学习|deep\s*learning', re.I),
+    'nlp': re.compile(r'\bnlp\b|自然语言处理', re.I),
+    'cv': re.compile(r'计算机视觉|\bcv\b|图像识别|opencv', re.I),
+    '大模型': re.compile(r'大模型|大语言模型|\bllm\b|\bgpt\b|aigc|agent开发', re.I),
+    '推荐系统': re.compile(r'推荐系统|推荐算法', re.I),
+    '数据挖掘': re.compile(r'数据挖掘|data\s*mining', re.I),
+    '数据仓库': re.compile(r'数仓|数据仓库|数据建模', re.I),
+    'etl': re.compile(r'\betl\b', re.I),
+    '爬虫': re.compile(r'爬虫|scrapy|采集程序', re.I),
+    'java': re.compile(r'\bjava\b(?!script)', re.I),
+    'spring': re.compile(r'spring', re.I),
+    'golang': re.compile(r'golang|\bgo语言|\bgo\b(?!ogl)', re.I),
+    'c++': re.compile(r'c\+\+', re.I),
+    'c#': re.compile(r'c#|\.net\b', re.I),
+    'php': re.compile(r'\bphp\b', re.I),
+    'javascript': re.compile(r'javascript|typescript|\bjs\b', re.I),
+    'vue': re.compile(r'\bvue\b', re.I),
+    'react': re.compile(r'react', re.I),
+    'nodejs': re.compile(r'node\.?js', re.I),
+    '微服务': re.compile(r'微服务|spring\s*cloud|服务治理', re.I),
+    'restful': re.compile(r'restful|rest\s*api|rest接口', re.I),
+    '前端开发': re.compile(r'前端|web页面|h5', re.I),
+    '自动化测试': re.compile(r'自动化测试|pytest|unittest|selenium', re.I),
+    '性能优化': re.compile(r'性能优化|性能调优|高并发', re.I),
+}
+
+
+def _extract_skills_from_content(content):
+    """从职位描述全文抽取技能词(归一化名,已是小写 canonical 形式)。"""
+    if not content:
+        return []
+    text = content[:3000]  # 截断,防止超长描述拖慢训练
+    found = []
+    for name, pattern in CONTENT_SKILL_PATTERNS.items():
+        if pattern.search(text):
+            found.append(name)
+    return found
+
+
 def _get_band_index(salary_mid):
     """返回 salary_mid 所在的档位索引。"""
     for i in range(len(BAND_EDGES) - 1):
@@ -122,13 +199,13 @@ def _get_band_index(salary_mid):
 # 数据读取
 # ============================================================
 def _fetch_rows():
-    """从 DB 读取建模所需字段。"""
+    """从 DB 读取建模所需字段(含 content 职位描述)。"""
     try:
         db = sqlite3.connect(config.DB_PATH)
         db.row_factory = sqlite3.Row
         cursor = db.cursor()
         cursor.execute(
-            "SELECT id, post, address, salary_min, salary_max, edu, exper, keywords FROM data"
+            "SELECT id, post, address, salary_min, salary_max, edu, exper, keywords, content FROM data"
         )
         rows = cursor.fetchall()
         db.close()
@@ -179,7 +256,11 @@ def _build_features(rows, skill_vocab=None):
         edu = _normalize_edu(row['edu'])
         exper = normalize_exper(row['exper'])
         category = _classify(row['post'] or '')
-        skills = _extract_skills_from_keywords(row['keywords'])
+        # 技能词 = jobTags 官方标签 ∪ 职位描述词典抽取,统一去重
+        skills = list(dict.fromkeys(
+            [s.lower() for s in _extract_skills_from_keywords(row['keywords'])]
+            + _extract_skills_from_content(row['content'])
+        ))
         band_idx = _get_band_index(salary_mid)
 
         samples.append({
@@ -307,6 +388,23 @@ def _build_features(rows, skill_vocab=None):
 # ============================================================
 # 训练 + 评估
 # ============================================================
+# GradientBoostingClassifier 不支持 class_weight 参数,用派生类在 fit 时
+# 注入 balanced 样本权重,保证三档候选模型在类别不均衡下可比。
+# 必须定义在模块顶层: pkg['_model'] 会被 joblib 序列化,
+# 反序列化要求类可按 modeling.salary_classifier._BalancedGB 导入。
+from sklearn.ensemble import GradientBoostingClassifier
+from sklearn.utils.class_weight import compute_sample_weight
+
+
+class _BalancedGB(GradientBoostingClassifier):
+    """带 class_weight='balanced' 语义的 GradientBoosting(fit 时自动加权)。"""
+
+    def fit(self, X, y, **kwargs):
+        if 'sample_weight' not in kwargs:
+            kwargs['sample_weight'] = compute_sample_weight('balanced', y)
+        return super().fit(X, y, **kwargs)
+
+
 def compute_salary_classifier(min_samples=50):
     """训练薪资档位分类模型并返回完整结果包。
 
@@ -360,7 +458,7 @@ def compute_salary_classifier(min_samples=50):
             })
 
     # ---- 模型选优：RF / GB / Logistic 交叉验证 ----
-    from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
+    from sklearn.ensemble import RandomForestClassifier
     from sklearn.linear_model import LogisticRegression
     from sklearn.model_selection import cross_val_score, StratifiedKFold
     from sklearn.metrics import classification_report, confusion_matrix
@@ -371,7 +469,7 @@ def compute_salary_classifier(min_samples=50):
         'RandomForest': RandomForestClassifier(
             n_estimators=120, max_depth=10, random_state=42, class_weight='balanced'
         ),
-        'GradientBoosting': GradientBoostingClassifier(
+        'GradientBoosting': _BalancedGB(
             n_estimators=100, max_depth=4, random_state=42
         ),
         'LogisticRegression': LogisticRegression(
@@ -415,32 +513,31 @@ def compute_salary_classifier(min_samples=50):
         use_split = False
 
     if use_split:
-        # ① 在训练集上拟合
+        # ① 在训练集上拟合，在测试集上评估
         best_model.fit(X_train, y_train)
         y_pred = best_model.predict(X_test)
-
-        # ② 测试集评估指标（诚实泛化）
-        report = classification_report(y_test, y_pred, output_dict=True, zero_division=0)
-        test_accuracy = float(report.get('accuracy', 0))
-        test_macro_f1 = float(report.get('macro avg', {}).get('f1-score', 0))
-        cm = confusion_matrix(y_test, y_pred).tolist()
-
-        # ③ 最终模型：全量重新拟合（用于实际部署推理）
-        best_model.fit(X, y)
+        y_eval = y_test
     else:
-        # 留一法交叉验证评估
+        # 留一法交叉验证评估(逐样本包外预测,可与全量 y 直接比较)
         from sklearn.model_selection import cross_val_predict
         _splits = min(5, min(int(np.bincount(y).min()), n_classes))
         if _splits < 2:
             _splits = 2
-        y_cv_pred = cross_val_predict(best_model, X, y, cv=_splits)
-        report = classification_report(y, y_cv_pred, output_dict=True, zero_division=0)
-        test_accuracy = float(report.get('accuracy', 0))
-        test_macro_f1 = float(report.get('macro avg', {}).get('f1-score', 0))
-        cm = confusion_matrix(y, y_cv_pred).tolist()
+        y_pred = cross_val_predict(best_model, X, y, cv=_splits)
+        y_eval = y
 
-        # 最终部署模型：全量训练
-        best_model.fit(X, y)
+    # ② 评估指标(档位是有序标签,除分类指标外补有序误差:
+    #    mae_bands = 平均偏了几档; adjacent_acc = 偏差不超过 1 档的比例)
+    _abs_diff = np.abs(y_pred.astype(np.int32) - y_eval)
+    report = classification_report(y_eval, y_pred, output_dict=True, zero_division=0)
+    test_accuracy = float(report.get('accuracy', 0))
+    test_macro_f1 = float(report.get('macro avg', {}).get('f1-score', 0))
+    mae_bands = float(_abs_diff.mean())
+    adjacent_acc = float(np.mean(_abs_diff <= 1))
+    cm = confusion_matrix(y_eval, y_pred).tolist()
+
+    # ③ 最终模型：全量重新拟合（用于实际部署推理）
+    best_model.fit(X, y)
 
     # ---- 特征重要性（基于全量训练后的模型） ----
     if hasattr(best_model, 'feature_importances_'):
@@ -462,11 +559,14 @@ def compute_salary_classifier(min_samples=50):
 
     # 构造返回包
     result = {
+        'pkg_version': 2,  # 口径版本: 2 = content 特征 + 有序指标;旧缓存据此自动重训
         'bands': label_counts,
         'metrics': {
             'accuracy': round(test_accuracy, 3),
             'macro_f1': round(test_macro_f1, 3),
             'cv_macro_f1': round(best_score, 3),  # 交叉验证得分（模型选优用）
+            'mae_bands': round(mae_bands, 3),      # 有序误差: 平均偏几档
+            'adjacent_acc': round(adjacent_acc, 3),  # 偏差 ≤ 1 档的比例
             'model_name': best_name,
             'n_classes': n_classes,
             'n_samples': n_total,

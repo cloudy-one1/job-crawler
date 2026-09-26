@@ -22,7 +22,7 @@ CREATE TABLE data (
     post TEXT, company TEXT, address TEXT,
     salary_min REAL, salary_max REAL,
     dateT TEXT, edu TEXT, exper TEXT, content TEXT,
-    keywords TEXT, job_url TEXT
+    keywords TEXT, job_url TEXT, collected_at TEXT
 )
 """
 

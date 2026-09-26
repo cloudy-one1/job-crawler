@@ -121,6 +121,13 @@
 {% if section == 'salary' %}
 <div class="card" data-no="薪资分布">
     <div id="salary_chart" style="width:100%; height:500px;"></div>
+    {% if salary_max_info and salary_max_info.is_outlier %}
+    <p style="font-size:12.5px; color:var(--ink-3); margin:10px 6px 2px; line-height:1.6;">
+        说明:当前库中最高薪资为 {{ '%.0f'|format(salary_max_info.max_k) }} 千元/月
+        ({{ salary_max_info.post }} · {{ salary_max_info.company }}),
+        属可解释的高阶岗位而非数据错误;分布按薪资区间中值分箱,个别高薪岗位位于最右档。
+    </p>
+    {% endif %}
 </div>
 {% endif %}
 

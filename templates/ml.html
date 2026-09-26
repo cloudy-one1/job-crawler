@@ -541,6 +541,7 @@ renderEduOverall();
 <p style="color:var(--ink-soft); font-size:14px; margin-top:-12px; margin-bottom:16px;">
     基于 {{ salary_classifier.total_rows }} 个真实岗位训练的薪资档位分类模型（{{ salary_classifier.metrics.model_name }}）。
     输入你的城市、学历、经验与技能，即可预测你可能的薪资区间。
+    薪资档位是有序标签：「偏差≤1档」衡量预测误差被控制在相邻档位内的比例。
 </p>
 
 <!-- 模型指标卡 -->
@@ -552,6 +553,14 @@ renderEduOverall();
     <div class="card" style="flex:1; min-width:150px; text-align:center;" data-no="F1">
         <div style="font-size:38px; font-weight:800; color:var(--stamp);">{{ "%.2f"|format(salary_classifier.metrics.macro_f1) }}</div>
         <div style="color:var(--ink-soft); font-size:13px; margin-top:4px;">Macro-F1</div>
+    </div>
+    <div class="card" style="flex:1; min-width:150px; text-align:center;" data-no="相邻档位">
+        <div style="font-size:38px; font-weight:800; color:var(--stamp);">{{ "%.1f"|format(salary_classifier.metrics.adjacent_acc * 100) }}%</div>
+        <div style="color:var(--ink-soft); font-size:13px; margin-top:4px;">偏差≤1档比例</div>
+    </div>
+    <div class="card" style="flex:1; min-width:150px; text-align:center;" data-no="档位MAE">
+        <div style="font-size:38px; font-weight:800; color:var(--stamp);">{{ "%.2f"|format(salary_classifier.metrics.mae_bands) }}</div>
+        <div style="color:var(--ink-soft); font-size:13px; margin-top:4px;">档位MAE(平均偏几档)</div>
     </div>
     <div class="card" style="flex:1; min-width:150px; text-align:center;" data-no="样本">
         <div style="font-size:38px; font-weight:800; color:var(--stamp);">{{ salary_classifier.metrics.n_samples }}</div>

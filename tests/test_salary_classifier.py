@@ -86,6 +86,8 @@ def _make_sample_rows(n=60):
             edus[edu_idx],
             expers[exper_idx],
             keywords_list[kw_idx],
+            f'岗位职责: {posts[post_idx]},要求熟悉 {keywords_list[kw_idx]} 相关技术栈,'
+            f'熟悉 Docker 部署与 Git 协作,具备高并发系统经验者优先。',
         ))
     return rows
 
@@ -108,10 +110,10 @@ class TestComputeSalaryClassifier:
     def test_insufficient_samples(self, monkeypatch):
         """样本不足返回 error。"""
         from modeling import salary_classifier
-        columns = ['id', 'post', 'address', 'salary_min', 'salary_max', 'edu', 'exper', 'keywords']
+        columns = ['id', 'post', 'address', 'salary_min', 'salary_max', 'edu', 'exper', 'keywords', 'content']
         rows = [
-            (1, '测试', '北京', 10.0, 20.0, '本科', '1-3年', 'Python Django'),
-            (2, '测试', '上海', 12.0, 22.0, '硕士', '3-5年', 'Java Spring'),
+            (1, '测试', '北京', 10.0, 20.0, '本科', '1-3年', 'Python Django', '需要 Python 经验'),
+            (2, '测试', '上海', 12.0, 22.0, '硕士', '3-5年', 'Java Spring', '需要 Java 经验'),
         ]
         mock = _patch_sqlite(salary_classifier, rows, columns)
         monkeypatch.setattr(salary_classifier, 'sqlite3', mock)
@@ -122,7 +124,7 @@ class TestComputeSalaryClassifier:
     def test_returns_valid_structure(self, monkeypatch):
         """有足够样本时应返回完整结果包。"""
         from modeling import salary_classifier
-        columns = ['id', 'post', 'address', 'salary_min', 'salary_max', 'edu', 'exper', 'keywords']
+        columns = ['id', 'post', 'address', 'salary_min', 'salary_max', 'edu', 'exper', 'keywords', 'content']
         rows = _make_sample_rows(60)
         mock = _patch_sqlite(salary_classifier, rows, columns)
         monkeypatch.setattr(salary_classifier, 'sqlite3', mock)
@@ -139,9 +141,13 @@ class TestComputeSalaryClassifier:
         m = result['metrics']
         assert 0 <= m['accuracy'] <= 1
         assert 0 <= m['macro_f1'] <= 1
+        assert 0 <= m['adjacent_acc'] <= 1
+        assert m['adjacent_acc'] >= m['accuracy'] - 1e-6  # ≤1档比例必然 ≥ 命中率
+        assert m['mae_bands'] >= 0
         assert m['n_samples'] >= 30
         assert m['n_classes'] >= 2
         assert m['model_name'] in ('RandomForest', 'GradientBoosting', 'LogisticRegression')
+        assert result['pkg_version'] == 2
 
         assert len(result['feature_importances']) >= 1
         assert result['total_rows'] >= 30
@@ -149,7 +155,7 @@ class TestComputeSalaryClassifier:
     def test_bands_cover_all_samples(self, monkeypatch):
         """档位分布应覆盖所有样本。"""
         from modeling import salary_classifier
-        columns = ['id', 'post', 'address', 'salary_min', 'salary_max', 'edu', 'exper', 'keywords']
+        columns = ['id', 'post', 'address', 'salary_min', 'salary_max', 'edu', 'exper', 'keywords', 'content']
         rows = _make_sample_rows(60)
         mock = _patch_sqlite(salary_classifier, rows, columns)
         monkeypatch.setattr(salary_classifier, 'sqlite3', mock)
@@ -168,7 +174,7 @@ class TestPredictSalaryBand:
     def _make_pkg(self, monkeypatch):
         """创建一个训练好的结果包用于预测测试。"""
         from modeling import salary_classifier
-        columns = ['id', 'post', 'address', 'salary_min', 'salary_max', 'edu', 'exper', 'keywords']
+        columns = ['id', 'post', 'address', 'salary_min', 'salary_max', 'edu', 'exper', 'keywords', 'content']
         rows = _make_sample_rows(60)
         mock = _patch_sqlite(salary_classifier, rows, columns)
         monkeypatch.setattr(salary_classifier, 'sqlite3', mock)
@@ -324,6 +330,58 @@ class TestSalaryPredictRoute:
         if resp.status_code == 200:
             data = resp.get_json()
             assert 'predicted_band' in data
+
+
+# ============================================================
+# content 职位描述技能抽取测试（v2 特征口径）
+# ============================================================
+class TestContentSkillExtraction:
+    """职位描述全文中的技能要求应进入特征(jobTags 只覆盖一部分技术要求)。"""
+
+    def test_english_tech_words_found(self):
+        from modeling.salary_classifier import _extract_skills_from_content
+        content = '负责后端服务开发,熟悉 Django Flask MySQL Redis,使用 Docker 部署'
+        skills = _extract_skills_from_content(content)
+        for expected in ('django', 'flask', 'mysql', 'redis', 'docker'):
+            assert expected in skills
+
+    def test_chinese_tech_words_found(self):
+        from modeling.salary_classifier import _extract_skills_from_content
+        content = '参与机器学习平台建设,要求熟悉深度学习框架 PyTorch,有大模型应用经验优先'
+        skills = _extract_skills_from_content(content)
+        for expected in ('机器学习', '深度学习', 'pytorch', '大模型'):
+            assert expected in skills
+
+    def test_no_false_positive_java_from_javascript(self):
+        from modeling.salary_classifier import _extract_skills_from_content
+        skills = _extract_skills_from_content('精通 JavaScript 与 Vue')
+        assert 'java' not in skills
+        assert 'javascript' in skills
+        assert 'vue' in skills
+
+    def test_empty_content_returns_empty(self):
+        from modeling.salary_classifier import _extract_skills_from_content
+        assert _extract_skills_from_content('') == []
+        assert _extract_skills_from_content(None) == []
+
+    def test_content_skills_enter_feature_vocab(self, monkeypatch):
+        """描述里反复出现的技能应出现在技能词表中。"""
+        from modeling import salary_classifier
+        columns = ['id', 'post', 'address', 'salary_min', 'salary_max',
+                   'edu', 'exper', 'keywords', 'content']
+        rows = []
+        for i in range(40):
+            smin = 10.0 + (i % 5)
+            rows.append((
+                i + 1, 'Python开发', '北京', smin, smin + 6,
+                ['本科', '硕士'][i % 2], ['1-3年', '3-5年'][i % 2],
+                'Python', '工作内容: 使用 FastAPI 与 Docker 构建服务,熟悉 MySQL。',
+            ))
+        mock_rows = [MockRow(**dict(zip(columns, row))) for row in rows]
+        feat = salary_classifier._build_features(mock_rows)
+        assert 'error' not in feat
+        for expected in ('fastapi', 'docker', 'mysql'):
+            assert expected in feat['skill_vocab']
 
 
 if __name__ == '__main__':

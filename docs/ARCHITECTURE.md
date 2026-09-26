@@ -22,7 +22,7 @@ config.py + data.db     基础设施
 
 | 层 | 目录 | 职责 | 关键模块 |
 |----|------|------|----------|
-| 数据层 | `data/` | 采集与清洗，产出标准化记录 | `python_job_scraper.py`、`salary_parser.py`、`exper_parser.py` |
+| 数据层 | `data/` | 采集与清洗，产出标准化记录；落库统一口径 | `python_job_scraper.py`、`job_store.py`、`salary_parser.py`、`exper_parser.py` |
 | 分析层 | `analysis/` | 描述性统计，定义统一口径（城市提取、职位分类） | `xinzi.py`、`xueli.py`、`jinyan.py`、`region.py`、`cross.py`、`jobtitle.py`、`wordcloud_gen.py` |
 | 建模层 | `modeling/` | 机器学习与多维分析 | `job_clustering.py`、`salary_classifier.py`、`skill_heatmap.py`、`job_similarity.py`、`salary_curve.py`、`edu_premium.py`、`salary_predict.py` |
 | Agent 层 | `agent/` | LLM 调用封装与工具函数 | `agent_core.py`、`agent_tools.py`、`resume_parser.py` |
@@ -44,16 +44,19 @@ config.py + data.db     基础设施
 | `exper` | TEXT | 经验要求原始文本（51job `workYearString`），统计时按 `data/exper_parser.py` 归一为 5 档 |
 | `content` | TEXT | 岗位描述原文 |
 | `keywords` | TEXT | 51job 官方 jobTags，词云与技能分析的输入 |
-| `job_url` | TEXT | 原文链接 |
+| `job_url` | TEXT | 原文链接，建唯一索引（`idx_data_job_url`），增量 upsert 的主键 |
+| `collected_at` | TEXT | 该记录最后一次被采集到的时间；多次采集自然形成多期数据，是时间序列分析的口径基础 |
 
-应用启动时 `init_db()` 会自动建表并为旧库补齐 `keywords`、`job_url` 字段，无需手动迁移。
+应用启动时 `init_db()` 委托 `data/job_store.ensure_schema()` 自动建表并为旧库补齐 `keywords`、`job_url`、`collected_at` 字段，无需手动迁移。
 
 ## 数据流
 
 ```
-1. 采集   /collect 或命令行  →  data/ 解析清洗  →  整表替换写入 data.db
+1. 采集   /collect 或命令行  →  data/ 解析清洗  →  data/job_store.upsert_jobs() 增量合并写入 data.db
+                                  （同 job_url 刷新；同「职位+公司+城市」收敛；面议排除，不清空历史）
 2. 统计   路由首次访问        →  analysis/*     →  ECharts 所需 JSON
-3. 建模   /ml 首次访问        →  modeling/*     →  joblib 持久化到 cache/
+3. 建模   /ml 首次访问        →  modeling/*     →  joblib 持久化到 cache/（结果包带 pkg_version / label_version，
+                                                  口径升级时旧缓存自动识别重训）
 4. 解读   用户点击 AI 按钮    →  agent/*        →  服务端缓存后返回
 ```
 

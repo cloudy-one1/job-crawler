@@ -24,11 +24,12 @@
 | 模块 | 能力 | 技术要点 |
 |------|------|----------|
 | 数据采集 | 51job 实时抓取（多城市 × 5 页上限） | Playwright 无头浏览器 + stealth 对抗 WAF、随机延时 |
+| 增量入库 | 重复采集自动合并，不覆盖历史数据 | 按 job_url upsert + 「职位+公司+城市」收敛 + collected_at 时间戳，面议/脏记录排除 |
 | 数据清洗 | 薪资字符串归一化、jobTags 关键字提取 | 正则规则引擎 |
 | 描述性统计 | 薪资 / 学历 / 经验 / 城市分布 + 交叉分析 | Pandas + SQLite |
-| 职位聚类 | 自动发现职位方向，点击簇卡片查看明细 | Jieba + TF-IDF + KMeans + 轮廓系数选 k |
+| 职位聚类 | 自动发现职位方向（判别性自动命名），点击簇卡片查看明细 | Jieba + TF-IDF + KMeans + 轮廓系数选 k + c-TF-IDF 命名 |
 | 多维薪资分析 | 技能热力图、经验-薪资曲线、学历溢价、岗位相似度网络 | NumPy + 余弦相似度 |
-| 薪资档位预测 | 三模型交叉验证选优，输出区间与特征重要性 | RandomForest / GradientBoosting / Logistic |
+| 薪资档位预测 | 三模型交叉验证选优，输出区间与特征重要性 | RandomForest / GradientBoosting / Logistic；特征含职位描述技能抽取，评估含偏差≤1档比例与档位MAE |
 | 技能词云 | 基于官方 jobTags 的高频热词 | 同义词归一化 + echarts-wordcloud |
 | AI 图表解读 | 图表页 6 区段、建模页 5 维度点击即解读 | DeepSeek → 通义千问 fallback + 服务端缓存 |
 | AI Agent | 10 个工具函数的求职问答 | 数据概览预加载 + 单次 LLM 调用 |
@@ -114,6 +115,7 @@ job-crawler/
 │
 ├── data/                   # 数据层：采集与清洗
 │   ├── python_job_scraper.py   # 51job 采集（Playwright + stealth）
+│   ├── job_store.py            # 落库统一口径（job_url upsert + collected_at + 清洗规则）
 │   ├── salary_parser.py        # 薪资解析（统一归一化为千元/月）
 │   └── exper_parser.py         # 经验口径归一（最低年限 → 5 个有序档位）
 │
@@ -141,7 +143,7 @@ job-crawler/
 │
 ├── templates/              # 页面模板（10 个）
 ├── static/                 # 主题样式、前端脚本与动效层（fx.js / fx-motion.css）
-├── tests/                  # 测试（301 个用例）
+├── tests/                  # 测试（318 个用例）
 ├── docs/                   # 文档
 │   ├── ARCHITECTURE.md         # 分层架构、数据模型与关键设计决策
 │   ├── CONFIGURATION.md        # 环境变量与配置说明
@@ -160,7 +162,7 @@ job-crawler/
 ## 测试
 
 ```bash
-pytest                       # 全量 301 个用例
+pytest                       # 全量 318 个用例
 pytest tests/test_cross.py   # 单个模块
 ```
 
@@ -169,9 +171,9 @@ CI 在 Python 3.10 / 3.11 / 3.12 上自动运行，详见 [ci.yml](.github/workf
 ## 路线图
 
 - [ ] 支持BOSS 直聘、拉勾等多数据源接入
-- [ ] 采集任务定时化与增量更新（当前为整表替换）
-- [ ] 岗位数据时间序列，观察薪资趋势变化
-- [ ] 聚类结果的可解释性增强（簇关键词抽取与命名）
+- [x] 采集任务增量更新（按 job_url upsert，不再整表替换，2026-09）
+- [ ] 岗位数据时间序列，观察薪资趋势变化（增量采集已就位，`collected_at` 已落库，等数据积累多期）
+- [ ] 聚类结果的可解释性增强（c-TF-IDF 判别性命名已交付，簇关键词摘要仍在深化）
 - [ ] 前端构建流程与组件化
 - [ ] 多用户与结果分享
 

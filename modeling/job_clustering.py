@@ -215,6 +215,11 @@ def run_clustering(k=None):
     # 计算每个簇的薪资统计
     salary_stats = _cluster_salary_stats(posts_data, labels, k)
 
+    # 判别性命名(c-TF-IDF 思路): 每簇平均 TF-IDF 向量减去全局平均,
+    # 取"该簇显著高于其他簇"的词做名字 —— 直接用簇中心 top 词容易选到
+    # 各簇都有的通用词(如"开发"),区分度不足。
+    global_mean = np.asarray(X.mean(axis=0)).ravel()
+
     result = []
     for i in range(k):
         idx = np.where(labels == i)[0]
@@ -222,9 +227,21 @@ def run_clustering(k=None):
         center = km.cluster_centers_[i]
         top_idx = center.argsort()[-5:][::-1]
         top_keywords = [feature_names[j] for j in top_idx]
+
+        cluster_mean = np.asarray(X[idx].mean(axis=0)).ravel()
+        distinct = cluster_mean - global_mean
+        distinct_order = distinct.argsort()[::-1]
+        discriminative = [
+            feature_names[j] for j in distinct_order[:6] if distinct[j] > 0
+        ][:3]
+        if not discriminative:
+            # 该簇与全局几乎无差异时退回簇中心 top 词
+            discriminative = top_keywords[:3]
+        auto_label = '·'.join(discriminative)
+
         result.append({
             'cluster_id': i,
-            'auto_label': '/'.join(top_keywords[:3]),
+            'auto_label': auto_label,
             'count': int(count),
             'top_keywords': top_keywords,
             'job_ids': [int(posts_data[j][0]) for j in idx],
@@ -232,7 +249,9 @@ def run_clustering(k=None):
         })
     result.sort(key=lambda x: -x['count'])
     total_jobs = len(titles)
-    return {'k': k, 'k_scores': k_scores, 'clusters': result, 'total_jobs': total_jobs}
+    return {'k': k, 'k_scores': k_scores, 'clusters': result,
+            'total_jobs': total_jobs,
+            'label_version': 2}  # 2 = c-TF-IDF 判别性命名;旧缓存据此自动重算
 
 
 if __name__ == '__main__':
