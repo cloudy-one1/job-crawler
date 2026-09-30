@@ -99,6 +99,8 @@ docker compose logs -f
 docker compose down
 ```
 
+> **生产部署**：容器内已用 gunicorn（单 worker × 4 线程，`timeout=300` 覆盖采集长请求）替代 Flask 开发服务器；多 worker 扩容时需同时设置 `RATELIMIT_STORAGE_URI` 指向 Redis 等共享后端，否则限流各进程独立计数。Windows 裸机生产可用 `pip install waitress && waitress-serve --port=5000 app:app`。
+
 ### 其他命令
 
 ```bash

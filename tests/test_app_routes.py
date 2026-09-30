@@ -419,6 +419,42 @@ class TestCompareAIAnalyze:
 
 
 # ============================================================
+# L-?: _joblib_load_fresh — joblib 缓存加载 + sklearn 版本漂移防护
+# ============================================================
+class TestJoblibLoadFresh:
+    """缓存加载把 sklearn InconsistentVersionWarning 归约为 stale 标志，
+    版本漂移时上层据此自动重训，启动不再带版本不一致警告。"""
+
+    def test_missing_file_returns_none_and_stale(self, tmp_path):
+        from app import _joblib_load_fresh
+        obj, stale = _joblib_load_fresh(str(tmp_path / 'nope.joblib'))
+        assert obj is None
+        assert stale is True
+
+    def test_plain_dict_loads_fresh(self, tmp_path):
+        import joblib
+        from app import _joblib_load_fresh
+        p = tmp_path / 'ok.joblib'
+        joblib.dump({'a': 1}, str(p))
+        obj, stale = _joblib_load_fresh(str(p))
+        assert obj == {'a': 1}
+        assert stale is False
+
+    def test_sklearn_object_loads_fresh_when_versions_match(self, tmp_path):
+        """同版本环境下 sklearn 模型应正常加载且不算 stale。"""
+        import joblib
+        import numpy as np
+        from sklearn.tree import DecisionTreeClassifier
+        from app import _joblib_load_fresh
+        clf = DecisionTreeClassifier(random_state=0).fit([[0, 0], [1, 1]], [0, 1])
+        p = tmp_path / 'clf.joblib'
+        joblib.dump(clf, str(p))
+        obj, stale = _joblib_load_fresh(str(p))
+        assert stale is False
+        assert obj.predict(np.array([[1, 1]])).tolist() == [1]
+
+
+# ============================================================
 # L-?: /advice 多 tab 状态保持
 # ============================================================
 class TestAdviceStatePersistence:

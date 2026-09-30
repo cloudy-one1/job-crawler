@@ -83,11 +83,14 @@ app.secret_key = os.environ.get('FLASK_SECRET') or os.urandom(32)
 # 否则返回 400 Bad Request (防止跨站请求伪造)。
 csrf = CSRFProtect(app)
 
-# Flask-Limiter 速率限制: 全局限流 + 对危险路由(/collect)单独收紧
+# Flask-Limiter 速率限制: 全局限流 + 对危险路由(/collect)单独收紧。
+# 默认内存存储在多进程部署(如 gunicorn 多 worker)下各进程独立计数,限流会变相失效;
+# 多 worker 部署时通过 RATELIMIT_STORAGE_URI 指向共享后端(如 redis://localhost:6379/0)。
 limiter = Limiter(
     app=app,
     key_func=get_remote_address,
     default_limits=["200 per day", "50 per hour"],
+    storage_uri=os.environ.get('RATELIMIT_STORAGE_URI', 'memory://'),
 )
 
 # SQLite WAL 模式: 设一次即持久化到数据库文件,后续所有连接自动受益(并发读不阻塞写)
@@ -182,8 +185,40 @@ def _cluster_cache_has_job_ids(cluster):
     return all('job_ids' in c for c in cluster['clusters'])
 
 
+def _joblib_load_fresh(path):
+    """加载 joblib 缓存文件,并把"疑似过期"归约为一个布尔值。
+
+    pkg_version / label_version 只覆盖自定义口径版本号,覆盖不到
+    sklearn 自身的小版本升级(如 1.9.0 → 1.9.1):反序列化旧对象时
+    sklearn 会发 InconsistentVersionWarning。这里捕获加载期间的该警告,
+    一律视为旧缓存,调用方据此自动重训,启动日志不再带版本警告。
+
+    Returns:
+        (obj, stale): 加载成功且无版本警告 → (obj, False);
+        加载失败或版本不一致 → (None 或 obj, True)。
+    """
+    import joblib as _joblib
+    try:
+        from sklearn.exceptions import InconsistentVersionWarning
+        version_guard = True
+    except ImportError:  # 极旧/极新 sklearn 无此警告类时退化为只做异常防护
+        version_guard = False
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter('always')
+        try:
+            obj = _joblib.load(path)
+        except Exception as e:
+            _logger.warning('缓存加载失败: %s', e)
+            return None, True
+
+    stale = version_guard and any(
+        issubclass(w.category, InconsistentVersionWarning) for w in caught)
+    return obj, stale
+
+
 def _load_or_train_models():
-    """尝试加载磁盘缓存的聚类模型;失败或不存在/格式过旧则重训并持久化。"""
+    """尝试加载磁盘缓存的聚类模型;失败/不存在/格式过旧/版本不一致则重训并持久化。"""
     import joblib as _joblib
     import modeling.job_clustering as job_clustering
 
@@ -197,18 +232,15 @@ def _load_or_train_models():
 
     # 尝试加载持久化聚类模型
     cluster = None
-    try:
-        if os.path.exists(_cluster_path):
-            cluster = _joblib.load(_cluster_path)
-            # label_version 不匹配(如命名口径升级)视为旧缓存,重训
-            if not (_cluster_cache_has_job_ids(cluster)
-                    and cluster.get('label_version') == CLUSTERING_LABEL_VERSION):
-                _logger.info('检测到旧版聚类缓存(缺 job_ids 或命名口径旧),将重新训练')
-                cluster = None
-            else:
-                _logger.info('从磁盘加载聚类结果 (k=%d)', cluster['k'])
-    except Exception as e:
-        _logger.warning('聚类结果加载失败,将重新计算: %s', e)
+    if os.path.exists(_cluster_path):
+        cluster, stale = _joblib_load_fresh(_cluster_path)
+        # sklearn 版本不一致 / 缺 job_ids / 命名口径升级 → 一律重训
+        if stale or not (_cluster_cache_has_job_ids(cluster)
+                and cluster.get('label_version') == CLUSTERING_LABEL_VERSION):
+            _logger.info('检测到旧版聚类缓存(sklearn版本不一致/缺 job_ids/命名口径旧),将重新训练')
+            cluster = None
+        else:
+            _logger.info('从磁盘加载聚类结果 (k=%d)', cluster['k'])
 
     # 缺失则训练
     try:
@@ -414,17 +446,16 @@ def _get_salary_classifier():
         # 尝试从磁盘加载
         try:
             if os.path.exists(_classifier_path):
-                import joblib as _joblib
-                pkg = _joblib.load(_classifier_path)
-                # pkg_version 不匹配说明是旧特征/旧指标口径的缓存,强制重训
-                if isinstance(pkg, dict) and '_model' in pkg \
+                # pkg_version / sklearn 版本任一不一致都说明是旧缓存,强制重训
+                pkg, stale = _joblib_load_fresh(_classifier_path)
+                if not stale and isinstance(pkg, dict) and '_model' in pkg \
                         and pkg.get('pkg_version') == CLASSIFIER_PKG_VERSION:
                     _logger.info('从磁盘加载薪资分类器 (model=%s, n=%d)',
                                  pkg.get('metrics', {}).get('model_name', '?'),
                                  pkg.get('total_rows', 0))
                     _salary_classifier_cache = pkg
                     return pkg
-                _logger.info('检测到旧版薪资分类器缓存,将重新训练')
+                _logger.info('检测到旧版薪资分类器缓存(sklearn版本不一致或口径旧),将重新训练')
         except Exception as e:
             _logger.warning('薪资分类器磁盘加载失败: %s', e)
 

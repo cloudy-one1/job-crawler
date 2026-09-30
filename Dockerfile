@@ -18,9 +18,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /app
 
 # 先安装 Python 依赖（利用 Docker 缓存层）
-# playwright 包仅安装 Python 绑定（import 不报错），不下载 Chromium 浏览器
+# playwright 包仅安装 Python 绑定（import 不报错），不下载 Chromium 浏览器；
+# gunicorn 仅容器内使用，本机开发仍直接 python app.py
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt gunicorn
 
 # 复制项目代码
 COPY . .
@@ -30,4 +31,7 @@ VOLUME ["/app/db"]
 
 EXPOSE 5000
 
-CMD ["python", "app.py"]
+# 生产 WSGI 服务器。单 worker × 多线程：与开发服务器相同的并发语义，
+# 且避免多 worker 下 Flask-Limiter 内存存储各进程独立计数（多 worker 需配
+# RATELIMIT_STORAGE_URI 指向 Redis 等共享后端）。timeout 覆盖 /collect 长请求。
+CMD ["gunicorn", "--workers", "1", "--threads", "4", "--timeout", "300", "--bind", "0.0.0.0:5000", "app:app"]
