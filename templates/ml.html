@@ -119,7 +119,7 @@
 <h2 id="ml-directions" style="margin-top:36px; margin-bottom:18px;">方向详情</h2>
 <div style="display:flex; gap:18px; flex-wrap:wrap;">
     {% for c in clustering.clusters %}
-    <a href="{{ url_for('cluster_jobs', cluster_id=c.cluster_id) }}"
+    <a href="{{ url_for('ml.cluster_jobs', cluster_id=c.cluster_id) }}"
        style="display:block; flex:1 1 300px; min-width:280px; text-decoration:none; color:inherit;"
        title="查看该方向包含的岗位列表">
     <div class="card dir-card" style="padding:20px 22px 18px;">

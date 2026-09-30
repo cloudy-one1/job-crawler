@@ -53,8 +53,8 @@
 
         </tr>
         {% for row in rows %}
-        <tr class="data-row" onclick="window.location='{{ url_for('job_detail', job_id=row[0]) }}'">
-            <td><a href="{{ url_for('job_detail', job_id=row[0]) }}" class="job-link">{{ row[1] }}</a></td>
+        <tr class="data-row" onclick="window.location='{{ url_for('pages.job_detail', job_id=row[0]) }}'">
+            <td><a href="{{ url_for('pages.job_detail', job_id=row[0]) }}" class="job-link">{{ row[1] }}</a></td>
             <td>{{ row[2] or '-' }}</td>
             <td>{{ row[3] }}</td>
             <td class="mono">{{ row[4] }}</td>
@@ -71,7 +71,7 @@
 </div>
 
 <div style="margin-top:24px; text-align:center;">
-    <a href="{{ url_for('ml_page') }}" class="btn btn-default">← 返回岗位聚类分析</a>
+    <a href="{{ url_for('ml.ml_page') }}" class="btn btn-default">← 返回岗位聚类分析</a>
 </div>
 
 {% endblock %}

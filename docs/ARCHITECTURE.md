@@ -26,7 +26,7 @@ config.py + data.db     基础设施
 | 分析层 | `analysis/` | 描述性统计，定义统一口径（城市提取、职位分类） | `xinzi.py`、`xueli.py`、`jinyan.py`、`region.py`、`cross.py`、`jobtitle.py`、`wordcloud_gen.py` |
 | 建模层 | `modeling/` | 机器学习与多维分析 | `job_clustering.py`、`salary_classifier.py`、`skill_heatmap.py`、`job_similarity.py`、`salary_curve.py`、`edu_premium.py`、`salary_predict.py` |
 | Agent 层 | `agent/` | LLM 调用封装与工具函数 | `agent_core.py`、`agent_tools.py`、`resume_parser.py` |
-| 展示层 | `app.py`、`templates/`、`static/` | 路由、页面、图表、主题、动效 | — |
+| 展示层 | `routes/` + `app.py` + `templates/`、`static/` | 五个蓝图（pages / chart / ml / advice / collect）承载路由；`app.py` 只做装配（日志、安全扩展、蓝图注册） | `routes/*.py`、`extensions.py`、`services/` |
 
 ## 数据模型
 
@@ -73,7 +73,7 @@ config.py + data.db     基础设施
 - 数据级：聚类模型 joblib 落盘到 `cache/`，重启免重训
 - 结果级：AI 解读结果按 TTL 缓存（图表 5 分钟、建模 2 分钟），避免重复调用 LLM
 
-所有模块级缓存变量集中声明在 `app.py` 的「模块级状态」区块，禁止散落到各处。
+所有模块级缓存变量集中声明在 `services/cache.py`（懒加载 getter、失效函数、会话存储同处），禁止散落到路由模块。
 
 **3. 预热机制**
 
@@ -115,8 +115,8 @@ config.py + data.db     基础设施
 
 ## 扩展指引
 
-**新增一个统计维度**：在 `analysis/` 新增函数 → 在 `app.py` 的图表路由中注册 → 在 `templates/h.html` 增加区段 → 补测试。
+**新增一个统计维度**：在 `analysis/` 新增函数 → 在 `routes/chart.py` 的图表路由中注册 → 在 `templates/h.html` 增加区段 → 补测试。
 
 **新增一个 Agent 工具**：在 `agent/agent_tools.py` 实现函数并注册进 `TOOLS` 表 → 参数由调用方显式传入 → 补测试。注意工具函数应基于 `analysis/` / `modeling/` 的既有口径，不要另起炉灶。
 
-**新增一个页面**：`templates/` 下新建模板继承 `base.html` → `app.py` 增加路由 → 若为 POST 表单必须加 CSRF token。
+**新增一个页面**：`templates/` 下新建模板继承 `base.html` → 在 `routes/` 对应蓝图（或新蓝图）增加路由并在 `app.py` 注册 → 若为 POST 表单必须加 CSRF token。注意蓝图端点带命名空间（`url_for('pages.list_data')`），模板中的链接要写全名。

@@ -56,12 +56,12 @@
     <tbody>
         {% for job in jobs %}
         <tr class="fav-row" id="fav-row-{{ job.id }}">
-            <td><a class="job-link" href="{{ url_for('job_detail', job_id=job.id) }}">{{ job.title }}</a></td>
+            <td><a class="job-link" href="{{ url_for('pages.job_detail', job_id=job.id) }}">{{ job.title }}</a></td>
             <td>{{ job.city }}</td>
             <td class="salary-mono">{{ job.salary_k }}</td>
             <td>
                 <div class="row-actions">
-                    <a href="{{ url_for('job_detail', job_id=job.id) }}">查看详情</a>
+                    <a href="{{ url_for('pages.job_detail', job_id=job.id) }}">查看详情</a>
                     <button type="button" class="mini-btn interested"
                             onclick="toggleInterestRow({{ job.id }}, this)">
                         <span class="interest-label">取消收藏</span>

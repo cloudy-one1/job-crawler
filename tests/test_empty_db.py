@@ -70,14 +70,14 @@ class TestRoutesOnEmptyDb:
         app.config['TESTING'] = True
         app.config['WTF_CSRF_ENABLED'] = False
         # 关键：清掉模块级缓存，否则会复用其他用例填充的图表/聚类缓存，
-        # 空库路径根本不会被走到
-        import app as app_module
-        app_module._chart_data_cache = None
-        app_module._clustering_cache = None
+        # 空库路径根本不会被走到。缓存状态的唯一归属地是 services.cache
+        from services import cache as cache_service
+        cache_service._chart_data_cache = None
+        cache_service._clustering_cache = None
         with app.test_client() as c:
             yield c
         # 用例结束后清缓存，避免污染后续测试
-        app_module._chart_data_cache = None
+        cache_service._chart_data_cache = None
 
     def test_chart_returns_200(self, client):
         assert client.get('/chart').status_code == 200
