@@ -121,14 +121,23 @@ Only output the Final Answer directly — no Thought/Action/Action Input needed.
     return prompt
 
 
-def call_deepseek(messages, api_key, model='deepseek-chat', max_retries=3):
-    """调用 DeepSeek API,带指数退避重试,应对网络抖动。"""
+def _log_retry(provider, reason, attempt, max_retries, err):
+    """统一的重试日志:最后一次标注"最后一次",其余附退避等待秒数。"""
+    if attempt < max_retries:
+        wait = 2 ** attempt
+        _logger.warning('%s %s(第%d/%d次),%ds后重试: %s', provider, reason, attempt, max_retries, wait, err)
+    else:
+        _logger.warning('%s %s(第%d/%d次,最后一次): %s', provider, reason, attempt, max_retries, err)
+
+
+def _post_chat_completion(url, api_key, model, messages, provider, max_retries=3):
+    """统一的 chat/completions POST + 指数退避重试(连接类错误与限流均重试)。"""
     session = _get_session()
     last_error = None
     for attempt in range(1, max_retries + 1):
         try:
             resp = session.post(
-                DEEPSEEK_API_URL,
+                url,
                 headers={'Authorization': f'Bearer {api_key}', 'Content-Type': 'application/json'},
                 json={'model': model, 'messages': messages, 'temperature': 0.3},
                 timeout=(5, 30),
@@ -137,29 +146,25 @@ def call_deepseek(messages, api_key, model='deepseek-chat', max_retries=3):
             return resp.json()['choices'][0]['message']['content']
         except requests.exceptions.ConnectionError as e:
             last_error = e
-            if attempt < max_retries:
-                wait = 2 ** attempt
-                _logger.warning('DeepSeek 连接被重置(第%d/%d次),%ds后重试: %s', attempt, max_retries, wait, e)
-                time.sleep(wait)
-            else:
-                _logger.warning('DeepSeek 连接被重置(第%d/%d次,最后一次): %s', attempt, max_retries, e)
+            _log_retry(provider, '连接被重置', attempt, max_retries, e)
         except requests.exceptions.RequestException as e:
             last_error = e
             status_code = getattr(e.response, 'status_code', None) if hasattr(e, 'response') else None
-            if status_code == 429:
-                _logger.warning('DeepSeek 被限流(HTTP 429),第%d/%d次', attempt, max_retries)
-            if attempt < max_retries:
-                wait = 2 ** attempt
-                _logger.warning('DeepSeek API 失败(第%d/%d次),%ds后重试: %s', attempt, max_retries, wait, e)
-                time.sleep(wait)
-            else:
-                _logger.warning('DeepSeek API 失败(第%d/%d次,最后一次): %s', attempt, max_retries, e)
+            reason = '被限流(HTTP 429)' if status_code == 429 else 'API 失败'
+            _log_retry(provider, reason, attempt, max_retries, e)
+        if attempt < max_retries:
+            time.sleep(2 ** attempt)
     raise last_error
+
+
+def call_deepseek(messages, api_key, model='deepseek-chat', max_retries=3):
+    """调用 DeepSeek API,带指数退避重试,应对网络抖动。"""
+    return _post_chat_completion(
+        DEEPSEEK_API_URL, api_key, model, messages, 'DeepSeek', max_retries)
 
 
 def call_qwen(messages, api_key=None, model=None, max_retries=3):
     """调用通义千问 API,作为 DeepSeek 不可用时的 fallback。"""
-    session = _get_session()
     if api_key is None:
         api_key = getattr(_config, 'QWEN_API_KEY', '')
     if model is None:
@@ -168,37 +173,7 @@ def call_qwen(messages, api_key=None, model=None, max_retries=3):
         raise RuntimeError('QWEN_API_KEY 未配置,无法调用千问 API')
 
     qwen_url = getattr(_config, 'QWEN_API_URL', 'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions')
-    last_error = None
-    for attempt in range(1, max_retries + 1):
-        try:
-            resp = session.post(
-                qwen_url,
-                headers={'Authorization': f'Bearer {api_key}', 'Content-Type': 'application/json'},
-                json={'model': model, 'messages': messages, 'temperature': 0.3},
-                timeout=(5, 30),
-            )
-            resp.raise_for_status()
-            return resp.json()['choices'][0]['message']['content']
-        except requests.exceptions.ConnectionError as e:
-            last_error = e
-            if attempt < max_retries:
-                wait = 2 ** attempt
-                _logger.warning('千问 连接被重置(第%d/%d次),%ds后重试: %s', attempt, max_retries, wait, e)
-                time.sleep(wait)
-            else:
-                _logger.warning('千问 连接被重置(第%d/%d次,最后一次): %s', attempt, max_retries, e)
-        except requests.exceptions.RequestException as e:
-            last_error = e
-            status_code = getattr(e.response, 'status_code', None) if hasattr(e, 'response') else None
-            if status_code == 429:
-                _logger.warning('千问 被限流(HTTP 429),第%d/%d次', attempt, max_retries)
-            if attempt < max_retries:
-                wait = 2 ** attempt
-                _logger.warning('千问 API 失败(第%d/%d次),%ds后重试: %s', attempt, max_retries, wait, e)
-                time.sleep(wait)
-            else:
-                _logger.warning('千问 API 失败(第%d/%d次,最后一次): %s', attempt, max_retries, e)
-    raise last_error
+    return _post_chat_completion(qwen_url, api_key, model, messages, '千问', max_retries)
 
 
 def call_llm_with_fallback(messages, deepseek_key=None, deepseek_model='deepseek-chat'):

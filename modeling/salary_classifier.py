@@ -379,7 +379,8 @@ def _build_features(rows, skill_vocab=None):
         'exper_order': EXPER_ORDER,
         'category_vocab': category_vocab,
         'skill_vocab': skill_vocab,
-        'band_labels': BAND_LABELS[:len(set(y))],  # 实际出现的档位数
+        # 实际出现的档位标签（按档位索引对齐；类别可能不连续，不能用前缀截断）
+        'band_labels': [BAND_LABELS[i] for i in sorted(set(int(v) for v in y))],
         'total_rows': n_total,
         'samples': samples,
     }
@@ -687,20 +688,24 @@ def predict_salary_band(pkg, city='', edu='', exper='', skills=None):
     # 推理
     try:
         proba = model.predict_proba(X_input)[0]
-        pred_idx = int(np.argmax(proba))
     except Exception as e:
         return {'error': f'推理失败: {str(e)}'}
 
-    predicted_band = band_labels[pred_idx] if pred_idx < len(band_labels) else '未知'
+    # proba 的顺序跟随训练时的 classes_，而不是档位下标本身。
+    # 训练数据缺某个中间档位时 classes_ 不连续，直接用下标映射
+    # 会把概率贴到错误的档位标签上。
+    classes = [int(c) for c in getattr(model, 'classes_', range(len(proba)))]
+    pairs = sorted(zip(classes, proba), key=lambda x: -x[1])
+    pred_class = pairs[0][0]
+
+    predicted_band = band_labels[pred_class] if pred_class < len(band_labels) else '未知'
     probabilities = [
         {
-            'band': band_labels[i] if i < len(band_labels) else f'档位{i}',
-            'prob': round(float(proba[i]), 4),
+            'band': band_labels[c] if c < len(band_labels) else f'档位{c}',
+            'prob': round(float(p), 4),
         }
-        for i in range(len(proba))
+        for c, p in pairs
     ]
-    # 按概率降序
-    probabilities.sort(key=lambda x: -x['prob'])
 
     return {
         'predicted_band': predicted_band,

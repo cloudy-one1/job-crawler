@@ -503,9 +503,9 @@ renderEduOverall();
             <tr style="border-bottom:1px solid #F0EFE9;">
                 <td style="padding:10px 14px; font-weight:500;">{{ p.city }}</td>
                 <td style="padding:10px 14px;">{{ p.category }}</td>
-                <td style="padding:10px 14px; color:SOFT;">{{ prem.from }}</td>
+                <td style="padding:10px 14px; color:var(--ink-soft);">{{ prem.from }}</td>
                 <td style="padding:10px 14px;">{{ prem.from_avg }}K</td>
-                <td style="padding:10px 14px; color:SOFT;">{{ prem.to }}</td>
+                <td style="padding:10px 14px; color:var(--ink-soft);">{{ prem.to }}</td>
                 <td style="padding:10px 14px;">{{ prem.to_avg }}K</td>
                 <td style="padding:10px 14px; font-weight:700;
                     {% if prem.premium_pct > 10 %}color:#4E6E58;
@@ -932,6 +932,7 @@ function showAI(event, section){
     }
 
     // 兜底：实时请求（正常不会走到这里，预取已覆盖）
+    // 不带 fresh: 服务端有 2 分钟缓存，避免每次打开弹窗都真实调用 LLM
     var fetchStart = Date.now();
     var csrfMeta = document.querySelector('meta[name="csrf-token"]');
     var csrfToken = csrfMeta ? csrfMeta.getAttribute('content') : '';
@@ -939,7 +940,7 @@ function showAI(event, section){
     fetch('/ml/analyze', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
-        body: JSON.stringify({ section: section, fresh: true })
+        body: JSON.stringify({ section: section })
     })
     .then(function(r){
         if(!r.ok) throw new Error('HTTP ' + r.status);
@@ -977,14 +978,20 @@ document.getElementById('ai_overlay').addEventListener('click', function(e){
     if(e.target === this) closeAI();
 });
 
-// ---------- AI 预取：页面加载后清旧缓存 → 后台并发请求全部 5 个 section ----------
+// ---------- AI 预取：页面加载后后台并发请求全部 5 个 section ----------
+// 不带 fresh: 复用服务端 2 分钟缓存（与服务端 TTL 一致），
+// 避免每次进页面就强制 5 次真实 LLM 调用烧掉配额。
 function fetchAISection(section){
+    // 先查 sessionStorage 缓存，命中则跳过请求
+    var cached = _aiCacheGet(section);
+    if (cached) return Promise.resolve(cached);
+
     var csrfMeta = document.querySelector('meta[name="csrf-token"]');
     var csrfToken = csrfMeta ? csrfMeta.getAttribute('content') : '';
     return fetch('/ml/analyze', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
-        body: JSON.stringify({ section: section, fresh: true })
+        body: JSON.stringify({ section: section })
     }).then(function(r){
         if(!r.ok) throw new Error('HTTP ' + r.status);
         return r.text();
@@ -997,11 +1004,7 @@ function fetchAISection(section){
 }
 
 (function prefetchAllAI(){
-    // 先清掉旧缓存，确保本次解读基于实时数据
-    AI_SECTIONS.forEach(function(s){
-        try { sessionStorage.removeItem(AI_CACHE_PREFIX + s); } catch(e) {}
-    });
-    // 并发预取全部 5 个 section
+    // 并发预取全部 5 个 section（命中 sessionStorage 缓存的 section 不再发请求）
     AI_SECTIONS.forEach(function(s){
         fetchAISection(s).catch(function(e){ console.warn('AI预取失败', s, e); });
     });

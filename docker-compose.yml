@@ -5,8 +5,10 @@ services:
     ports:
       - "5000:5000"
     volumes:
-      # SQLite 数据持久化（宿主机采集 data.db → 容器读）
-      - ./data.db:/app/data.db
+      # 数据库目录挂载（而非单文件）：SQLite 的 -wal/-shm 日志与主库同卷，
+      # 宿主机采集与容器读写共享同一套日志，避免双 WAL 各写各的造成库损坏。
+      # 老库迁移: mkdir db && mv data.db db/ 一次即可。
+      - ./db:/app/db
       # 模板/源码热更新（开发时不需重建镜像）
       - ./templates:/app/templates
       - ./app.py:/app/app.py
@@ -16,4 +18,6 @@ services:
       - .env
     environment:
       - TZ=Asia/Shanghai
+      # 数据库路径指向挂载目录（config.py 支持该环境变量）
+      - DB_PATH=/app/db/data.db
     restart: unless-stopped

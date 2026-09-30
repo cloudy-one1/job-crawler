@@ -20,6 +20,7 @@ from analysis.jobtitle import classify
 from analysis.xueli import xuelifun
 from analysis.jinyan import jinyanfun
 from analysis.region import extract_city
+from data.exper_parser import EXPER_ORDER, normalize_exper
 from modeling.salary_predict import lookup_salary_range as _lookup_salary_range
 
 _logger = logging.getLogger('job_analysis.agent_tools')
@@ -27,16 +28,18 @@ _logger = logging.getLogger('job_analysis.agent_tools')
 
 # 已废弃: set_model_result (薪资预测已替换为纯 DB 查询)
 
-# 常见技术技能关键词(用于 extract_skills + skill_demand_analysis)
+# 常见技术技能关键词(用于 extract_skills + skill_demand_analysis)。
+# 英文词保留 \b 词边界防误切；中文词不能套 \b——中文汉字本身就是 \w，
+# "熟悉机器学习"这类紧邻写法在 \b 下永远匹配不到。
 _SKILL_PATTERNS = re.compile(
     r'\b(?:Python|Java|JavaScript|TypeScript|Go|Rust|C\+\+|C#|PHP|Ruby|Swift|Kotlin|'
     r'SQL|MySQL|PostgreSQL|MongoDB|Redis|Elasticsearch|Oracle|Docker|Kubernetes|K8s|'
     r'Linux|AWS|Azure|GCP|Git|Jenkins|CI/CD|DevOps|Ansible|Terraform|Nginx|Apache|'
     r'React|Vue|Angular|Node\.js|Django|Flask|Spring|Spring\s*Boot|FastAPI|Express|'
     r'TensorFlow|PyTorch|Scikit-learn|Pandas|NumPy|Spark|Hadoop|Kafka|RabbitMQ|'
-    r'GraphQL|REST|gRPC|Webpack|Vite|CSS|HTML|Sass|Tailwind|Bootstrap|'
-    r'机器学习|深度学习|自然语言处理|计算机视觉|数据分析|数据挖掘|大数据|'
-    r'微服务|分布式|高并发|系统设计|架构设计)\b',
+    r'GraphQL|REST|gRPC|Webpack|Vite|CSS|HTML|Sass|Tailwind|Bootstrap)\b'
+    r'|机器学习|深度学习|自然语言处理|计算机视觉|数据分析|数据挖掘|大数据'
+    r'|微服务|分布式|高并发|系统设计|架构设计',
     re.IGNORECASE
 )
 
@@ -88,9 +91,8 @@ def predict_salary(city: str, category: str, edu: str = '不限', exper: str = '
     }
 
 
-# ———— 学历/经验排序表 ————
+# ———— 学历排序表（经验档位统一走 data/exper_parser 的 EXPER_ORDER，不再另立口径） ————
 _EDU_RANK = {'高中': 1, '中专': 2, '大专': 3, '本科': 4, '硕士': 5, '博士': 6}
-_EXPER_RANK = {'应届': 1, '1年': 2, '2年': 3, '3-5年': 4, '5-10年': 5, '10年以上': 6}
 
 # ———— 1-5 分制阈值标签 (career-ops-cn) ————
 _SCORE_THRESHOLDS = [
@@ -201,7 +203,8 @@ def _score_edu(user_edu: str, job_edu_text: str, max_points: float = 15) -> tupl
 
 
 def _score_exper(user_exper: str, job_exper_text: str, max_points: float = 15) -> tuple:
-    """经验匹配评分。
+    """经验匹配评分（两侧都归一到 data/exper_parser 的 5 个有序档位再比较，
+    「3年及以上」「1-3年经验」等写法与下拉选项在同一口径下可比）。
 
     Returns:
         (score: float, reason: str)
@@ -210,20 +213,13 @@ def _score_exper(user_exper: str, job_exper_text: str, max_points: float = 15) -
         return max_points * 0.5, '未限定经验'
     if not job_exper_text or job_exper_text == '经验不限':
         return max_points, '岗位经验不限'
-    # 精确匹配
-    if user_exper in job_exper_text:
-        return max_points, '经验完全匹配'
-    # 等级差匹配
-    user_rank = _EXPER_RANK.get(user_exper, 0)
-    job_rank = 0
-    for key, rank in _EXPER_RANK.items():
-        if key in job_exper_text:
-            job_rank = max(job_rank, rank)
-    if user_rank >= job_rank > 0:
+    user_level = EXPER_ORDER.get(normalize_exper(user_exper), 0)
+    job_level = EXPER_ORDER.get(normalize_exper(job_exper_text), 0)
+    if user_level == job_level:
+        return max_points, f'经验匹配: {job_exper_text}'
+    if user_level > job_level:
         return max_points * 0.7, f'经验达标: 要求{job_exper_text}, 你有{user_exper}'
-    if job_rank > user_rank > 0:
-        return max_points * 0.35, f'经验不足: 要求{job_exper_text}, 你有{user_exper}'
-    return max_points * 0.5, '经验匹配度一般'
+    return max_points * 0.35, f'经验不足: 要求{job_exper_text}, 你有{user_exper}'
 
 
 def _score_salary(smin: float, smax: float, median_all: float, max_points: float = 10) -> tuple:
@@ -836,9 +832,9 @@ def review_resume(resume_text: str, target_city: str = '', target_category: str 
             # 生成优化建议
             suggestions = []
             if missing:
-                priority_missing = sorted(missing, key=lambda s: jd_skills_list.count(s)
-                                          if (jd_skills_list := list(jd_skills)) else 0,
-                                          reverse=True)[:5]
+                # extract_skills 每篇 JD 已去重，缺失技能之间没有频率可排；
+                # 取字母序前 5 保证输出稳定，不再伪装"按 JD 频率排优先级"
+                priority_missing = sorted(missing)[:5]
                 suggestions.append({
                     'type': 'skill',
                     'title': '建议补充技能',

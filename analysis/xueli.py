@@ -28,8 +28,10 @@ def get_edu():
 
 def xuelifun():
     rows = get_edu()
-    data = [r[0] for r in rows if r[0]]
-    data = [d if d else '不限' for d in data]
+    # 空库 / 全部为空学历时直接返回空列表（DataFrame([]) 取列 0 会 KeyError，导致 /chart 500）
+    if not rows:
+        return []
+    data = [r[0] if r[0] else '不限' for r in rows]
 
     counts = DataFrame(data)[0].value_counts()
     list_all = []

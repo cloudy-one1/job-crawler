@@ -45,9 +45,6 @@ def _cluster_salary_stats(posts_data, labels, k):
         db.row_factory = sqlite3.Row
         cursor = db.cursor()
         placeholders = ','.join(['?'] * len(ids))
-        if not placeholders:
-            db.close()
-            return []
         cursor.execute(
             f"SELECT id, salary_min, salary_max FROM data WHERE id IN ({placeholders})",
             ids

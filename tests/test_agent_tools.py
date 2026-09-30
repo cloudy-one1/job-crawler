@@ -342,5 +342,55 @@ class TestMatchJobsTargetIds:
         assert len(ids) >= 2, "全表匹配应命中多个岗位"
 
 
+# ============================================================
+# _score_exper — 经验档位评分（统一走 data/exper_parser 口径）
+# ============================================================
+class TestScoreExper:
+    """经验评分两侧都归一到 5 个有序档位再比较，
+    「3年及以上」这类下限式写法与「3-5年」在同一口径下可比。"""
+
+    def test_full_match_same_bucket(self):
+        from agent.agent_tools import _score_exper
+        score, _ = _score_exper('3-5年', '3-5年', 15)
+        assert score == 15
+
+    def test_lower_bound_style_normalized(self):
+        """「3年及以上」归一后就是「3-5年」档，应给满分（旧版只能得'匹配度一般'）。"""
+        from agent.agent_tools import _score_exper
+        score, reason = _score_exper('3-5年', '3年及以上', 15)
+        assert score == 15
+        assert '经验匹配' in reason
+
+    def test_canonical_bucket_1_3year(self):
+        """'1-3年' 是规范档位（旧版 _EXPER_RANK 缺这一档，同样只能得'匹配度一般'）。"""
+        from agent.agent_tools import _score_exper
+        score, _ = _score_exper('1-3年', '1-3年', 15)
+        assert score == 15
+
+    def test_user_exceeds_requirement(self):
+        from agent.agent_tools import _score_exper
+        score, reason = _score_exper('5-10年', '1-3年', 15)
+        assert 0 < score < 15
+        assert '达标' in reason
+
+    def test_user_under_requirement(self):
+        from agent.agent_tools import _score_exper
+        score, reason = _score_exper('1-3年', '5-10年', 15)
+        assert 0 < score < 15
+        assert '不足' in reason
+
+    def test_no_experience_required_full_score(self):
+        from agent.agent_tools import _score_exper
+        score, _ = _score_exper('1-3年', '经验不限', 15)
+        assert score == 15
+
+    def test_chinese_skill_extraction_mid_sentence(self):
+        """中文技能词紧邻其他汉字时也应被提取（\\b 词边界对中文失效的回归）。"""
+        from agent.agent_tools import extract_skills
+        skills = extract_skills('要求熟悉机器学习者优先，有大数据处理经验')
+        assert '机器学习' in skills
+        assert '大数据' in skills
+
+
 if __name__ == '__main__':
     pytest.main([__file__, '-v'])

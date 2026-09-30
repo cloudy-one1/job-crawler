@@ -910,6 +910,22 @@ def build_api_params(keyword, job_area, page_num, sort_type='0'):
     }
 
 
+def _build_address(city, job_area):
+    """把 51job 的 jobAreaString 规范成库内 address 口径（城市-区县）。
+
+    全国搜索（city='全国'）时 jobAreaString 自带真实城市（如"上海-浦东新区"），
+    不能再拼"全国-"前缀，否则城市分布/收藏/匹配的城市字段全被污染。
+    """
+    job_area = (job_area or '').strip()
+    if city == '全国':
+        return job_area.replace('·', '-') if job_area else city
+    if job_area.startswith(city):
+        return job_area.replace('·', '-')
+    if job_area:
+        return city + '-' + job_area.replace('·', '-')
+    return city
+
+
 def _evaluate_with_timeout(page, js_func, params, timeout_ms=28000):
     """
     调用 page.evaluate() 并带上显式超时(默认28s), 处理超时与异常。
@@ -1175,12 +1191,7 @@ def scrape_jobs(keyword, cities, pages_per_city=3, sort_type='0', progress_callb
                         all_seen.add(jid)
 
                         job_area = (j.get('jobAreaString') or '').strip()
-                        if job_area.startswith(city):
-                            address = job_area.replace('·', '-')
-                        elif job_area:
-                            address = city + '-' + job_area.replace('·', '-')
-                        else:
-                            address = city
+                        address = _build_address(city, job_area)
 
                         # 尝试从搜索 API 获取职位描述/标签/福利作为 content
                         content_parts = []

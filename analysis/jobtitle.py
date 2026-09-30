@@ -173,7 +173,6 @@ RULES = [
     ('采购',         '物流/供应链'),
     ('配送',         '物流/供应链'),
     ('运输',         '物流/供应链'),
-    ('供应链',       '物流/供应链'),
     ('报关',         '物流/供应链'),
     ('快递',         '物流/供应链'),
 
@@ -293,6 +292,9 @@ def get_post():
 def jobtitlefun():
     rows = get_post()
     categories = [classify(row[0]) for row in rows if row[0]]
+    # 无有效职位标题时返回空列表（DataFrame([]) 取列 0 会 KeyError）
+    if not categories:
+        return []
 
     counts = DataFrame(categories)[0].value_counts()
 

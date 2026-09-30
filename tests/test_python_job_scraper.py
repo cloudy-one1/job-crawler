@@ -182,3 +182,39 @@ class TestBuildApiParams:
         result1 = build_api_params('python', '010000', 1)
         result2 = build_api_params('python', '010000', 1)
         assert result1 is not result2
+
+
+# ============================================================
+# _build_address — 库内 address 口径
+# ============================================================
+class TestBuildAddress:
+    """验证 jobAreaString → address 的规范化。
+
+    重点回归：全国搜索（city='全国'）时 jobAreaString 自带真实城市，
+    旧版会拼出「全国-上海-浦东新区」，污染城市分布/收藏/匹配的城市字段。
+    """
+
+    def test_city_prefixed_area_kept_as_is(self):
+        from data.python_job_scraper import _build_address
+        assert _build_address('北京', '北京-海淀区') == '北京-海淀区'
+
+    def test_city_prepended_when_area_differs(self):
+        from data.python_job_scraper import _build_address
+        assert _build_address('北京', '朝阳区') == '北京-朝阳区'
+
+    def test_nationwide_uses_area_city(self):
+        """全国搜索不得拼「全国-」前缀。"""
+        from data.python_job_scraper import _build_address
+        assert _build_address('全国', '上海-浦东新区') == '上海-浦东新区'
+
+    def test_nationwide_empty_area_falls_back(self):
+        from data.python_job_scraper import _build_address
+        assert _build_address('全国', '') == '全国'
+
+    def test_empty_area_returns_city_only(self):
+        from data.python_job_scraper import _build_address
+        assert _build_address('杭州', '') == '杭州'
+
+    def test_middle_dot_converted_to_dash(self):
+        from data.python_job_scraper import _build_address
+        assert _build_address('苏州', '苏州·工业园区') == '苏州-工业园区'

@@ -18,6 +18,7 @@ cp .env.example .env
 | `FLASK_SECRET` | 启动时随机生成 | 生产必填 | 签名 session 与 CSRF token，固定值请用 `python -c "import secrets; print(secrets.token_hex(32))"` 生成 |
 | `FLASK_HOST` | `127.0.0.1` | 选填 | 绑定网卡，需要局域网访问时设 `0.0.0.0` |
 | `FLASK_PORT` | `5000` | 选填 | 监听端口 |
+| `DB_PATH` | 项目根目录 `data.db` | 选填 | SQLite 数据库路径。Docker 部署用它把数据库指到挂载目录（`docker-compose.yml` 已内置） |
 | `COLLECT_TOKEN` | 空（不启用） | 选填 | 采集口令，设置后 `/collect` 表单必须携带同值字段 |
 
 ## 关于 AI 功能
@@ -37,7 +38,7 @@ rm .debug        # 关闭（默认）
 
 ## 数据库位置
 
-数据库是项目根目录下的 `data.db`（SQLite），路径在 `config.py` 中由 `DB_PATH` 常量定义。应用启动时会调用 `init_db()` 自动建表和补齐字段，无需手动执行迁移脚本。
+数据库默认是项目根目录下的 `data.db`（SQLite），路径在 `config.py` 中定义，可用环境变量 `DB_PATH` 覆盖（Docker 部署即通过它指向挂载目录）。应用启动时会调用 `init_db()` 自动建表和补齐字段，无需手动执行迁移脚本。
 
 ```bash
 sqlite3 data.db ".schema data"   # 查看表结构

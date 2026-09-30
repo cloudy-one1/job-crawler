@@ -63,14 +63,20 @@ class TestListPageParamSafety:
 
 
 # ============================================================
-# L-2: /list 精确搜索行为回归测试
+# L-2: /list 搜索行为回归测试
 # ============================================================
-class TestListSearchExactMatch:
-    """验证 /list 的 kw/city 参数使用 LOWER() 精确匹配（非 LIKE 模糊）。"""
+class TestListSearchFuzzyMatch:
+    """验证 /list 的 kw 使用 LIKE 模糊匹配、city 使用前缀匹配。
+
+    历史说明：旧版用 LOWER() 精确等值匹配（并有测试锁定该行为），
+    但精确等值在真实库上几乎搜不到东西（实测 post='Python' 0 命中、
+    LIKE '%Python%' 63 命中），且首页承诺"支持关键词搜索，非精确匹配"、
+    采集完成页跳转 /list?kw=python 依赖模糊语义 —— 故统一改为模糊匹配。
+    """
 
     @pytest.fixture(autouse=True)
     def _seed_and_cleanup(self):
-        """插入临时测试记录,测试结束后删除。"""
+        """插入临时测试记录（含「城市-区县」形态地址），测试结束后删除。"""
         import sqlite3
         from config import DB_PATH
         self.db = sqlite3.connect(DB_PATH, timeout=10)
@@ -80,46 +86,41 @@ class TestListSearchExactMatch:
             [
                 ("ZZZ_TEST_Python开发工程师", "TEST_CORP", "ZZZ_TEST_CITY", 10.0, 20.0),
                 ("ZZZ_TEST_Java高级开发工程师", "TEST_CORP", "北京", 15.0, 30.0),
+                ("ZZZ_TEST_爬虫工程师", "TEST_CORP", "ZZZ_TEST_CITY-海淀区", 12.0, 22.0),
             ]
         )
         self.db.commit()
         yield
-        self.db.execute("DELETE FROM data WHERE post LIKE 'ZZZ_TEST_%' OR address = 'ZZZ_TEST_CITY'")
+        self.db.execute("DELETE FROM data WHERE post LIKE 'ZZZ_TEST_%' OR address LIKE 'ZZZ_TEST_CITY%'")
         self.db.commit()
         self.db.close()
 
     def test_exact_post_match_finds_record(self, client):
-        """完全正确的岗位名精确匹配,应返回记录。"""
+        """完整岗位名仍然命中。"""
         resp = client.get('/list?kw=ZZZ_TEST_Python开发工程师')
         html = resp.data.decode('utf-8')
         assert resp.status_code == 200
         assert 'ZZZ_TEST_Python开发工程师' in html
-        assert 'ZZZ_TEST_Java高级开发工程师' not in html  # 不匹配另一个
 
-    def test_case_insensitive_match(self, client):
-        """大小写忽略:小写搜索也能匹配。"""
-        resp = client.get('/list?kw=zzz_test_python开发工程师')
+    def test_case_insensitive_partial_match(self, client):
+        """大小写忽略的部分关键词也应命中（模糊匹配）。"""
+        resp = client.get('/list?kw=zzz_test_python')
         html = resp.data.decode('utf-8')
         assert resp.status_code == 200
         assert 'ZZZ_TEST_Python开发工程师' in html
+        assert 'ZZZ_TEST_Java高级开发工程师' not in html
 
-    def test_partial_keyword_does_not_match(self, client):
-        """部分关键词不应匹配(不再是 LIKE 模糊搜索)。"""
-        resp = client.get('/list?kw=Python开发工程师')
-        html = resp.data.decode('utf-8')
-        assert resp.status_code == 200
-        assert 'ZZZ_TEST_Python开发工程师' not in html  # 前缀不同不匹配
-
-    def test_exact_city_match(self, client):
-        """城市精确匹配。"""
+    def test_city_prefix_matches_district_form(self, client):
+        """城市前缀必须命中「城市-区县」形态的地址（旧版等值匹配漏掉这类行）。"""
         resp = client.get('/list?city=ZZZ_TEST_CITY')
         html = resp.data.decode('utf-8')
         assert resp.status_code == 200
-        assert 'ZZZ_TEST_Python开发工程师' in html
+        assert 'ZZZ_TEST_爬虫工程师' in html
+        assert 'ZZZ_TEST_Java高级开发工程师' not in html  # 地址是「北京」，不匹配
 
-    def test_city_partial_not_match(self, client):
-        """城市部分匹配不应生效。"""
-        resp = client.get('/list?city=TEST')
+    def test_unrelated_city_no_match(self, client):
+        """无关城市不应命中测试数据。"""
+        resp = client.get('/list?city=上海')
         html = resp.data.decode('utf-8')
         assert resp.status_code == 200
         assert 'ZZZ_TEST_Python开发工程师' not in html

@@ -21,7 +21,7 @@ run: ## 启动 Web 服务 (http://127.0.0.1:5000)
 	$(PYTHON) app.py
 
 crawl: ## 命令行采集一次数据（需先 playwright install chromium）
-	$(PYTHON) -c "from data.python_job_scraper import scrape_jobs; scrape_jobs()"
+	$(PYTHON) -c "from data.python_job_scraper import scrape_jobs; scrape_jobs('python', ['北京', '上海', '广州', '深圳'], pages_per_city=3)"
 
 docker-up: ## 启动容器
 	docker compose up -d

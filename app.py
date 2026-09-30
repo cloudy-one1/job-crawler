@@ -25,6 +25,7 @@ import sys
 import json
 import uuid
 import time
+import threading
 import requests
 import warnings
 
@@ -119,6 +120,15 @@ _edu_premium_cache = None           # 学历溢价分析缓存
 _salary_classifier_cache = None     # 薪资档位分类模型缓存
 _conversations = {}                 # Agent 对话持久化: {chat_uuid: {question, answer, trace}}
 _review_store = {}                    # 简历审查结果持久化(体积大, 不进 cookie): {review_uuid: state}
+_SERVER_STORE_MAX = 200            # 服务端会话存储上限(超出淘汰最早条目,防长驻进程内存无限增长)
+_lazy_lock = threading.RLock()     # 懒加载/重训互斥锁(RLock: _get_similarity 内部会再调 _get_clustering)
+
+
+def _store_put(store, key, value):
+    """模块级会话存储写入;超过上限时按插入顺序淘汰最早条目。"""
+    store[key] = value
+    while len(store) > _SERVER_STORE_MAX:
+        store.pop(next(iter(store)))
 
 
 # --- 数据库迁移 ----------------------------------------------------------------
@@ -261,32 +271,37 @@ def _salary_max_info():
 
 
 def _compute_chart_data():
-    """计算图表所需全部统计数据（带 5 分钟缓存）。"""
+    """计算图表所需全部统计数据（带 5 分钟缓存；加锁避免并发重复计算）。"""
     global _chart_data_cache
     now = time.time()
     if _chart_data_cache and now - _chart_data_cache[0] < _CHART_DATA_CACHE_TTL:
         return _chart_data_cache[1]
+    with _lazy_lock:
+        now = time.time()
+        # 双重检查：等锁期间可能已被其他线程填充
+        if _chart_data_cache and now - _chart_data_cache[0] < _CHART_DATA_CACHE_TTL:
+            return _chart_data_cache[1]
 
-    import analysis.xinzi as xinzi
-    import analysis.xueli as xueli
-    import analysis.jinyan as jinyan
-    import analysis.region as region
-    import analysis.cross as cross
-    from analysis.wordcloud_gen import generate_wordcloud_data
+        import analysis.xinzi as xinzi
+        import analysis.xueli as xueli
+        import analysis.jinyan as jinyan
+        import analysis.region as region
+        import analysis.cross as cross
+        from analysis.wordcloud_gen import generate_wordcloud_data
 
-    data = {
-        'xz': xinzi.xinzi(),
-        'xl': xueli.xuelifun(),
-        'jy': jinyan.jinyanfun(),
-        'city_data': region.regionfun(),
-        'cross_exper': cross.salary_vs_exper(),
-        'cross_edu': cross.salary_vs_edu(),
-        'wc_data': generate_wordcloud_data(top_n=60),
-        'salary_max_info': _salary_max_info(),
-    }
-    _logger.info('图表数据缓存已更新')
-    _chart_data_cache = (now, data)
-    return data
+        data = {
+            'xz': xinzi.xinzi(),
+            'xl': xueli.xuelifun(),
+            'jy': jinyan.jinyanfun(),
+            'city_data': region.regionfun(),
+            'cross_exper': cross.salary_vs_exper(),
+            'cross_edu': cross.salary_vs_edu(),
+            'wc_data': generate_wordcloud_data(top_n=60),
+            'salary_max_info': _salary_max_info(),
+        }
+        _logger.info('图表数据缓存已更新')
+        _chart_data_cache = (now, data)
+        return data
 
 
 # 聚类结果懒加载设计说明：
@@ -294,75 +309,90 @@ def _compute_chart_data():
 # 等首个访问 /ml 的请求到来时才计算（避免误判启动卡死）。
 
 def _get_clustering():
-    """获取聚类结果（首次调用时训练+缓存，后续直接返回）。"""
+    """获取聚类结果（首次调用时训练+缓存；加锁避免并发重复训练/并发写缓存文件）。"""
     global _clustering_cache
     if _clustering_cache is not None:
         return _clustering_cache
-    _logger.info('正在预计算职位聚类(只在第一次访问时跑一次)...')
-    _clustering_cache = _load_or_train_models()
-    if _clustering_cache is not None:
-        _logger.info('预计算完成。')
-    return _clustering_cache
+    with _lazy_lock:
+        if _clustering_cache is not None:  # 等锁期间可能已被其他线程填充
+            return _clustering_cache
+        _logger.info('正在预计算职位聚类(只在第一次访问时跑一次)...')
+        _clustering_cache = _load_or_train_models()
+        if _clustering_cache is not None:
+            _logger.info('预计算完成。')
+        return _clustering_cache
 
 
 def _get_skill_heatmap():
-    """获取技能供需热力图数据（懒加载缓存）。"""
+    """获取技能供需热力图数据（懒加载缓存 + 互斥）。"""
     global _skill_heatmap_cache
     if _skill_heatmap_cache is not None:
         return _skill_heatmap_cache
-    try:
-        from modeling.skill_heatmap import compute_skill_heatmap
-        _skill_heatmap_cache = compute_skill_heatmap()
-    except Exception as e:
-        _logger.warning('技能热力图计算失败: %s', e)
-        _skill_heatmap_cache = {'error': str(e), 'total_rows': 0}
-    return _skill_heatmap_cache
+    with _lazy_lock:
+        if _skill_heatmap_cache is not None:
+            return _skill_heatmap_cache
+        try:
+            from modeling.skill_heatmap import compute_skill_heatmap
+            _skill_heatmap_cache = compute_skill_heatmap()
+        except Exception as e:
+            _logger.warning('技能热力图计算失败: %s', e)
+            _skill_heatmap_cache = {'error': str(e), 'total_rows': 0}
+        return _skill_heatmap_cache
 
 
 def _get_similarity():
-    """获取岗位相似度网络数据（懒加载缓存）。"""
+    """获取岗位相似度网络数据（懒加载缓存 + 互斥；内部再调 _get_clustering，RLock 可重入）。"""
     global _job_similarity_cache
     if _job_similarity_cache is not None:
         return _job_similarity_cache
-    clustering = _get_clustering()
-    if not clustering:
-        _job_similarity_cache = {'error': '聚类模型未训练'}
+    with _lazy_lock:
+        if _job_similarity_cache is not None:
+            return _job_similarity_cache
+        clustering = _get_clustering()
+        if not clustering:
+            _job_similarity_cache = {'error': '聚类模型未训练'}
+            return _job_similarity_cache
+        try:
+            from modeling.job_similarity import compute_similarity_network
+            _job_similarity_cache = compute_similarity_network(clustering)
+        except Exception as e:
+            _logger.warning('相似度网络计算失败: %s', e)
+            _job_similarity_cache = {'error': str(e)}
         return _job_similarity_cache
-    try:
-        from modeling.job_similarity import compute_similarity_network
-        _job_similarity_cache = compute_similarity_network(clustering)
-    except Exception as e:
-        _logger.warning('相似度网络计算失败: %s', e)
-        _job_similarity_cache = {'error': str(e)}
-    return _job_similarity_cache
 
 
 def _get_salary_curve():
-    """获取薪资成长曲线数据（懒加载缓存）。"""
+    """获取薪资成长曲线数据（懒加载缓存 + 互斥）。"""
     global _salary_curve_cache
     if _salary_curve_cache is not None:
         return _salary_curve_cache
-    try:
-        from modeling.salary_curve import compute_salary_curve
-        _salary_curve_cache = compute_salary_curve()
-    except Exception as e:
-        _logger.warning('薪资曲线计算失败: %s', e)
-        _salary_curve_cache = {'error': str(e), 'total_rows': 0}
-    return _salary_curve_cache
+    with _lazy_lock:
+        if _salary_curve_cache is not None:
+            return _salary_curve_cache
+        try:
+            from modeling.salary_curve import compute_salary_curve
+            _salary_curve_cache = compute_salary_curve()
+        except Exception as e:
+            _logger.warning('薪资曲线计算失败: %s', e)
+            _salary_curve_cache = {'error': str(e), 'total_rows': 0}
+        return _salary_curve_cache
 
 
 def _get_edu_premium():
-    """获取学历溢价分析数据（懒加载缓存）。"""
+    """获取学历溢价分析数据（懒加载缓存 + 互斥）。"""
     global _edu_premium_cache
     if _edu_premium_cache is not None:
         return _edu_premium_cache
-    try:
-        from modeling.edu_premium import compute_edu_premium
-        _edu_premium_cache = compute_edu_premium()
-    except Exception as e:
-        _logger.warning('学历溢价计算失败: %s', e)
-        _edu_premium_cache = {'error': str(e), 'total_rows': 0}
-    return _edu_premium_cache
+    with _lazy_lock:
+        if _edu_premium_cache is not None:
+            return _edu_premium_cache
+        try:
+            from modeling.edu_premium import compute_edu_premium
+            _edu_premium_cache = compute_edu_premium()
+        except Exception as e:
+            _logger.warning('学历溢价计算失败: %s', e)
+            _edu_premium_cache = {'error': str(e), 'total_rows': 0}
+        return _edu_premium_cache
 
 
 CLUSTERING_LABEL_VERSION = 2  # 聚类结果包版本: 2 = c-TF-IDF 判别性命名
@@ -370,47 +400,50 @@ CLASSIFIER_PKG_VERSION = 2  # 分类器结果包口径版本: 2 = content 特征
 
 
 def _get_salary_classifier():
-    """获取薪资档位分类模型（懒加载+缓存+joblib持久化）。"""
+    """获取薪资档位分类模型（懒加载+缓存+joblib持久化；加锁避免并发训练/并发写缓存）。"""
     global _salary_classifier_cache
     if _salary_classifier_cache is not None:
         return _salary_classifier_cache
-    _cache_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'cache')
-    os.makedirs(_cache_dir, exist_ok=True)
-    _classifier_path = os.path.join(_cache_dir, 'salary_classifier.joblib')
+    with _lazy_lock:
+        if _salary_classifier_cache is not None:  # 等锁期间可能已被其他线程填充
+            return _salary_classifier_cache
+        _cache_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'cache')
+        os.makedirs(_cache_dir, exist_ok=True)
+        _classifier_path = os.path.join(_cache_dir, 'salary_classifier.joblib')
 
-    # 尝试从磁盘加载
-    try:
-        if os.path.exists(_classifier_path):
+        # 尝试从磁盘加载
+        try:
+            if os.path.exists(_classifier_path):
+                import joblib as _joblib
+                pkg = _joblib.load(_classifier_path)
+                # pkg_version 不匹配说明是旧特征/旧指标口径的缓存,强制重训
+                if isinstance(pkg, dict) and '_model' in pkg \
+                        and pkg.get('pkg_version') == CLASSIFIER_PKG_VERSION:
+                    _logger.info('从磁盘加载薪资分类器 (model=%s, n=%d)',
+                                 pkg.get('metrics', {}).get('model_name', '?'),
+                                 pkg.get('total_rows', 0))
+                    _salary_classifier_cache = pkg
+                    return pkg
+                _logger.info('检测到旧版薪资分类器缓存,将重新训练')
+        except Exception as e:
+            _logger.warning('薪资分类器磁盘加载失败: %s', e)
+
+        # 训练
+        try:
+            from modeling.salary_classifier import compute_salary_classifier
             import joblib as _joblib
-            pkg = _joblib.load(_classifier_path)
-            # pkg_version 不匹配说明是旧特征/旧指标口径的缓存,强制重训
-            if isinstance(pkg, dict) and '_model' in pkg \
-                    and pkg.get('pkg_version') == CLASSIFIER_PKG_VERSION:
-                _logger.info('从磁盘加载薪资分类器 (model=%s, n=%d)',
-                             pkg.get('metrics', {}).get('model_name', '?'),
-                             pkg.get('total_rows', 0))
-                _salary_classifier_cache = pkg
-                return pkg
-            _logger.info('检测到旧版薪资分类器缓存,将重新训练')
-    except Exception as e:
-        _logger.warning('薪资分类器磁盘加载失败: %s', e)
-
-    # 训练
-    try:
-        from modeling.salary_classifier import compute_salary_classifier
-        import joblib as _joblib
-        pkg = compute_salary_classifier(min_samples=50)
-        if 'error' not in pkg and '_model' in pkg:
-            _joblib.dump(pkg, _classifier_path)
-            _logger.info('薪资分类器已训练并保存到磁盘')
-        else:
-            _logger.warning('薪资分类器训练未产生有效模型: %s', pkg.get('error', '未知'))
-        _salary_classifier_cache = pkg
-        return pkg
-    except Exception as e:
-        _logger.warning('薪资分类器训练失败: %s', e)
-        _salary_classifier_cache = {'error': str(e), 'total_rows': 0}
-        return _salary_classifier_cache
+            pkg = compute_salary_classifier(min_samples=50)
+            if 'error' not in pkg and '_model' in pkg:
+                _joblib.dump(pkg, _classifier_path)
+                _logger.info('薪资分类器已训练并保存到磁盘')
+            else:
+                _logger.warning('薪资分类器训练未产生有效模型: %s', pkg.get('error', '未知'))
+            _salary_classifier_cache = pkg
+            return pkg
+        except Exception as e:
+            _logger.warning('薪资分类器训练失败: %s', e)
+            _salary_classifier_cache = {'error': str(e), 'total_rows': 0}
+            return _salary_classifier_cache
 
 
 def _invalidate_modeling_caches():
@@ -487,18 +520,19 @@ def list_data():
     city_raw = request.args.get('city', '').strip()
     cities = [c.strip() for c in _re.split(r'[,，\s]+', city_raw) if c.strip()]
 
-    db = sqlite3.connect(config.DB_PATH)
-    cursor = db.cursor()
-
     conditions = []
     params = []
     if kw:
-        conditions.append("LOWER(post) = LOWER(?)")
-        params.append(kw)
+        # 关键词模糊匹配：精确等值在真实库上几乎搜不到东西
+        # （实测 post='Python' 等值 0 命中，LIKE '%Python%' 63 命中）
+        conditions.append("LOWER(post) LIKE LOWER(?)")
+        params.append(f"%{kw}%")
     if cities:
-        city_conditions = " OR ".join(["LOWER(address) = LOWER(?)"] * len(cities))
+        # 城市前缀匹配：address 同时存在「上海」与「上海-闵行区」两种形态，
+        # 等值匹配会漏掉带区县的那一半
+        city_conditions = " OR ".join(["LOWER(address) LIKE LOWER(?)"] * len(cities))
         conditions.append(f"({city_conditions})")
-        params.extend(cities)
+        params.extend([f"{c}%" for c in cities])
     where_clause = ("WHERE " + " AND ".join(conditions)) if conditions else ""
 
     db = get_db()
@@ -610,10 +644,13 @@ def _llm_analyze(cache, ttl, cache_key, data_desc, instruction,
         return analysis
     except requests.exceptions.HTTPError as e:
         status = getattr(e.response, 'status_code', None) if hasattr(e, 'response') else None
-        msg = 'AI 服务暂时繁忙,请稍后再试' if status == 429 else f'AI 分析生成失败: {str(e)}'
+        # 细节进日志,前端只拿友好提示,不暴露内部路径/接口地址
+        _logger.warning('AI 分析生成失败 (HTTP %s): %s', status, e)
+        msg = 'AI 服务暂时繁忙,请稍后再试' if status == 429 else 'AI 分析生成失败,请稍后再试'
         return json.dumps({'error': msg}), 503
     except Exception as e:
-        return json.dumps({'error': f'AI 分析生成失败: {str(e)}'}), 500
+        _logger.warning('AI 分析生成失败: %s', e)
+        return json.dumps({'error': 'AI 分析生成失败,请稍后再试'}), 500
 
 
 @app.route('/chart/analyze', methods=['POST'])
@@ -639,7 +676,8 @@ def chart_analyze():
         cross_edu = chart_data['cross_edu']
         wc_val = chart_data['wc_data']
     except Exception as e:
-        return _json.dumps({'error': f'数据查询失败: {str(e)}'}), 500
+        _logger.warning('图表数据查询失败: %s', e)
+        return _json.dumps({'error': '数据查询失败,请稍后重试'}), 500
 
     # 拼装面向 DeepSeek 的数据描述
     labels_xz = ['<5k', '5-8k', '8-11k', '11-14k', '14-17k', '17-20k', '20-23k', '23k+']
@@ -793,7 +831,9 @@ def ml_analyze():
                 g = overall[i].get('median', 0) - overall[i-1].get('median', 0)
                 if g > max_growth:
                     max_growth, max_idx = g, i
-            curve_desc += f'\n薪资跃升最快阶段: {overall[max_idx-1].get("exper","")}→{overall[max_idx].get("exper","")}(+{max_growth}K)'
+            # 所有段中位数都在下降时 max_idx 保持 0，此时不存在"跃升阶段"，跳过
+            if max_growth > 0 and max_idx >= 1:
+                curve_desc += f'\n薪资跃升最快阶段: {overall[max_idx-1].get("exper","")}→{overall[max_idx].get("exper","")}(+{max_growth}K)'
         section_map['salary_curve'] = (
             curve_desc,
             '请分析薪资随经验的成长规律:哪个阶段增幅最大、天花板在哪。'
@@ -1300,9 +1340,10 @@ def advice():
             return _render_advice('agent', error='Agent调用失败,请稍后重试',
                                    question=question)
 
-        # 保存 Agent 对话到服务端会话存储
+        # 保存 Agent 对话到服务端会话存储（带上限，防长驻进程内存无限增长）
         chat_id = str(uuid.uuid4())
-        _conversations[chat_id] = {'question': question, 'answer': answer, 'data_context': data_context}
+        _store_put(_conversations, chat_id,
+                   {'question': question, 'answer': answer, 'data_context': data_context})
         session['chat_id'] = chat_id
         session['advice_active_tab'] = 'agent'
         # 四个 tab 相互独立，各自保留已生成的内容，不再互相清空
@@ -1430,13 +1471,13 @@ def advice():
                                    review_interested_ids=target_job_ids)
 
         review_id = str(uuid.uuid4())
-        _review_store[review_id] = {
+        _store_put(_review_store, review_id, {
             'result': review_result,
             'text': resume_text,
             'city': target_city,
             'category': target_category,
             'target_job_ids': target_job_ids,
-        }
+        })
         session['review_id'] = review_id
         session['advice_active_tab'] = 'review'
 
@@ -1548,7 +1589,10 @@ if __name__ == '__main__':
     socketserver.TCPServer.allow_reuse_address = True
 
     # threaded=True: 允许并发处理请求,避免/collect 阻塞其他页面浏览
-    port = 5000
+    try:
+        port = int(os.environ.get('FLASK_PORT', '5000'))
+    except ValueError:
+        port = 5000
     print(f"\n  -> 本地访问: http://127.0.0.1:{port}", flush=True)
     try:
         import socket

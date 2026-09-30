@@ -153,7 +153,7 @@
                         class="btn btn-info" style="flex:1; padding:12px; font-size:15px;">立即实时采集</button>
             </div>
             <p style="color:var(--ink-soft); font-size:13px; margin-top:10px; margin-bottom:0; line-height:1.5;">
-                查询已有数据：浏览已收录的岗位信息；实时采集：获取 51job 最新招聘数据（更新前会清空旧记录）。
+                查询已有数据：按关键词浏览已收录的岗位；实时采集：获取 51job 最新招聘数据（重复岗位自动合并，历史数据保留）。
             </p>
         </form>
     </div>
@@ -185,7 +185,7 @@
 <div id="collect-loading" class="fx-overlay" role="status" aria-live="polite">
     <div class="fx-uplink"><i></i><i></i><i></i><i></i><i></i></div>
     <p>正在从 51job 拉取最新招聘数据…</p>
-    <p class="fx-uplink-hint">采集需清空旧数据并重新抓取，请稍候片刻</p>
+    <p class="fx-uplink-hint">正在实时抓取并增量写入数据库，历史数据会保留，请稍候片刻</p>
 </div>
 
 {% endblock %}

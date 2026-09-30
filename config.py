@@ -33,8 +33,11 @@ def _load_env_file():
 _load_env_file()
 
 
-# SQLite 数据库文件路径(放在本模块所在目录)
-DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'data.db')
+# SQLite 数据库文件路径(默认放在本模块所在目录;
+# 可用环境变量 DB_PATH 覆盖,Docker 部署用它把数据库指到挂载目录,
+# 保证 data.db 与 SQLite 的 -wal/-shm 日志文件在同一卷内)
+DB_PATH = os.environ.get('DB_PATH') or os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), 'data.db')
 
 # 便于需要 URI 格式的库使用
 DB_URI = 'sqlite:///' + DB_PATH

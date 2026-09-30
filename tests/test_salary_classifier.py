@@ -386,3 +386,52 @@ class TestContentSkillExtraction:
 
 if __name__ == '__main__':
     pytest.main([__file__, '-v'])
+
+
+# ============================================================
+# 缺档场景：predict_proba 的顺序跟随 classes_，不得按数组下标直贴标签
+# ============================================================
+class _FakeSkippedBandModel:
+    """模拟训练数据缺「10-14K」档(档位2)的模型: classes_ = [0,1,3,4,5]。
+
+    predict_proba 返回的概率顺序与 classes_ 一一对应，
+    最高概率 0.30 位于 classes_[2]（即档位 3）。
+    """
+    classes_ = np.array([0, 1, 3, 4, 5])
+
+    def predict_proba(self, X):
+        return np.array([[0.10, 0.20, 0.30, 0.25, 0.15]])
+
+
+class TestPredictWithSkippedBand:
+    """训练数据缺中间档位时，概率必须经 classes_ 映射到正确的档位标签。"""
+
+    def _make_pkg(self):
+        from modeling.salary_classifier import BAND_LABELS
+        return {
+            '_model': _FakeSkippedBandModel(),
+            '_features': {
+                'city_vocab': {'北京': 0, '其他': 1},
+                'skill_vocab': {'python': 0},
+                'category_vocab': {'后端开发': 0},
+                'band_labels': BAND_LABELS,
+            },
+        }
+
+    def test_top_prob_maps_to_classes_label(self):
+        """最高概率在 classes_ 里对应档位 3 → 标签必须是 '14-18K'，
+        而不是按下标直取的 '10-14K'（旧版 bug）。"""
+        from modeling.salary_classifier import predict_salary_band
+        result = predict_salary_band(
+            self._make_pkg(), city='北京', edu='本科', exper='1-3年', skills='Python')
+        assert 'error' not in result
+        assert result['predicted_band'] == '14-18K'
+        assert result['probabilities'][0]['band'] == '14-18K'
+        assert abs(sum(p['prob'] for p in result['probabilities']) - 1.0) < 1e-6
+
+    def test_probabilities_sorted_desc(self):
+        from modeling.salary_classifier import predict_salary_band
+        result = predict_salary_band(
+            self._make_pkg(), city='北京', edu='本科', exper='1-3年', skills='Python')
+        probs = [p['prob'] for p in result['probabilities']]
+        assert probs == sorted(probs, reverse=True)

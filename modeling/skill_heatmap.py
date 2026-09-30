@@ -13,6 +13,7 @@ import sqlite3
 import re
 import config
 import logging
+import numpy as np
 
 _logger = logging.getLogger('modeling.skill_heatmap')
 
@@ -221,7 +222,6 @@ def compute_skill_heatmap(min_count=3, top_skills=20):
         for ct in cities:
             salaries = valid_cells.get((sk, ct), [])
             if salaries:
-                import numpy as np
                 s_row.append(round(float(np.mean(salaries)), 1))
                 c_row.append(len(salaries))
             else:

@@ -13,6 +13,11 @@ __pycache__/
 *.sqlite
 *.sqlite3
 
+# 密钥文件 (绝不打包进镜像层，运行时由 compose env_file 注入)
+.env
+.env.local
+.env.*.local
+
 # 测试
 .pytest_cache/
 .mypy_cache/

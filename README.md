@@ -82,14 +82,16 @@ python app.py             # http://127.0.0.1:5000
 
 ```bash
 playwright install chromium
-python -c "from data.python_job_scraper import scrape_jobs; scrape_jobs()"
+python -c "from data.python_job_scraper import scrape_jobs; scrape_jobs('python', ['北京', '上海', '广州', '深圳'], pages_per_city=3)"
 ```
 
 也可以在网页端 `/collect` 页面填写关键词与城市后一键采集（带限流与可选口令保护）。
 
 ### Docker 运行
 
-> 采集依赖真实浏览器指纹对抗 WAF，需在**宿主机**执行并写入 `data.db`；容器只负责 Web 展示、模型推理与 Agent，通过 volume 共享同一个数据库。
+> 采集依赖真实浏览器指纹对抗 WAF，需在**宿主机**执行并写入 `db/data.db`；容器只负责 Web 展示、模型推理与 Agent，通过 volume 共享同一个数据库目录（整目录挂载，保证 SQLite 的 `-wal`/`-shm` 日志文件随库一起共享）。
+>
+> 老库迁移：`mkdir db && mv data.db db/`（一次即可）；宿主机采集时设置同样的路径：`DB_PATH=./db/data.db`。
 
 ```bash
 docker compose up -d      # http://localhost:5000
@@ -143,7 +145,7 @@ job-crawler/
 │
 ├── templates/              # 页面模板（10 个）
 ├── static/                 # 主题样式、前端脚本与动效层（fx.js / fx-motion.css）
-├── tests/                  # 测试（318 个用例）
+├── tests/                  # 测试（347 个用例）
 ├── docs/                   # 文档
 │   ├── ARCHITECTURE.md         # 分层架构、数据模型与关键设计决策
 │   ├── CONFIGURATION.md        # 环境变量与配置说明
@@ -162,7 +164,7 @@ job-crawler/
 ## 测试
 
 ```bash
-pytest                       # 全量 318 个用例
+pytest                       # 全量 347 个用例
 pytest tests/test_cross.py   # 单个模块
 ```
 

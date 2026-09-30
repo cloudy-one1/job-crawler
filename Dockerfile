@@ -1,12 +1,12 @@
 # 招聘数据分析平台 Docker 镜像（纯 Web 服务，不含爬虫）
 #
 # 架构说明：
-#   - 数据采集（Playwright Chromium）在宿主机本机运行 → 写入 data.db
+#   - 数据采集（Playwright Chromium）在宿主机本机运行 → 写入挂载目录中的 data.db
 #   - Docker 容器只负责 Flask Web 展示 + ML 模型 + Agent 推理
-#   - 两者通过 volume 挂载共享同一个 data.db
+#   - 两者通过 volume 挂载共享同一个数据库目录（含 SQLite 的 -wal/-shm 日志文件）
 #
 # 构建: docker build -t job-analysis .
-# 运行: docker run -p 5000:5000 -v $(pwd)/data.db:/app/data.db --env-file .env job-analysis
+# 运行: docker run -p 5000:5000 -v $(pwd)/db:/app/db -e DB_PATH=/app/db/data.db --env-file .env job-analysis
 
 FROM python:3.11-slim
 
@@ -25,9 +25,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 # 复制项目代码
 COPY . .
 
-# SQLite 数据持久化：data.db 由宿主机采集后 volume 挂载
-# 首次部署会自动创建空表
-VOLUME ["/app/data.db"]
+# SQLite 数据库目录：宿主机采集后挂载整个目录（含 -wal/-shm 日志），不挂单文件
+VOLUME ["/app/db"]
 
 EXPOSE 5000
 

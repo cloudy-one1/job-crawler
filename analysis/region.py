@@ -37,6 +37,9 @@ def get_address():
 
 def regionfun():
     rows = get_address()
+    # 空库时直接返回空列表（DataFrame([]) 取列 0 会 KeyError，导致 /chart 500）
+    if not rows:
+        return []
     city_list = [extract_city(row[0]) for row in rows]
 
     counts = DataFrame(city_list)[0].value_counts()
