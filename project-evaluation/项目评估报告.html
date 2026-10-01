@@ -1,0 +1,366 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>job-crawler 项目评估报告</title>
+<style>
+:root{
+  --bg:#eef1f5;
+  --paper:#ffffff;
+  --ink:#1b2430;
+  --ink-2:#465364;
+  --ink-3:#7a8699;
+  --line:#dde3ec;
+  --brand:#17406b;
+  --brand-soft:#e7eef7;
+  --good:#1d7a4d;
+  --good-bg:#e6f4ec;
+  --warn:#b4690e;
+  --warn-bg:#fbf1dd;
+  --bad:#b23a41;
+  --bad-bg:#f9e9ea;
+  --mono:"Cascadia Code",Consolas,"Courier New",monospace;
+}
+*{margin:0;padding:0;box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{
+  font-family:"Noto Sans SC","Microsoft YaHei","PingFang SC",sans-serif;
+  background:var(--bg);color:var(--ink);line-height:1.7;
+  -webkit-font-smoothing:antialiased;
+}
+.wrap{max-width:1080px;margin:0 auto;padding:0 24px 80px}
+
+/* ===== 报告头 ===== */
+header.report-head{
+  background:linear-gradient(150deg,#13345a 0%,#1d4a7c 60%,#24598f 100%);
+  color:#fff;padding:56px 0 44px;margin-bottom:34px;
+  border-bottom:4px solid #0e2a49;
+}
+header.report-head .wrap{padding-bottom:0}
+.eyebrow{
+  font-family:var(--mono);font-size:12px;letter-spacing:2px;
+  text-transform:uppercase;color:#9cc0e6;margin-bottom:14px;
+}
+h1{font-size:38px;font-weight:800;letter-spacing:-.5px;margin-bottom:10px}
+.head-sub{font-size:16px;color:#cfe0f2;max-width:680px;margin-bottom:30px}
+.head-grid{display:flex;flex-wrap:wrap;gap:16px;align-items:stretch}
+.score-card{
+  background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.18);
+  border-radius:10px;padding:18px 26px;backdrop-filter:blur(4px);
+}
+.score-num{font-size:44px;font-weight:800;line-height:1;font-family:var(--mono)}
+.score-num small{font-size:18px;color:#a9c6e4;font-weight:400}
+.score-label{font-size:13px;color:#bcd4ec;margin-top:6px}
+.verdict-card{flex:1;min-width:260px;background:rgba(255,255,255,.08);
+  border:1px solid rgba(255,255,255,.18);border-radius:10px;padding:18px 24px;font-size:14px;color:#e4eef9}
+.verdict-card b{color:#fff}
+
+/* ===== 指标条 ===== */
+.metrics{display:grid;grid-template-columns:repeat(5,1fr);gap:14px;margin-bottom:42px}
+.metric{background:var(--paper);border:1px solid var(--line);border-radius:10px;
+  padding:18px 16px;text-align:center}
+.metric b{display:block;font-size:26px;font-family:var(--mono);color:var(--brand);font-weight:700}
+.metric span{font-size:12.5px;color:var(--ink-3)}
+
+/* ===== 区块通用 ===== */
+section{margin-bottom:46px}
+.sec-title{display:flex;align-items:baseline;gap:12px;margin-bottom:20px}
+.sec-title h2{font-size:22px;font-weight:700;color:var(--ink)}
+.sec-title .idx{font-family:var(--mono);color:var(--brand);font-size:14px;font-weight:700}
+.sec-title::after{content:"";flex:1;height:1px;background:var(--line)}
+.card{background:var(--paper);border:1px solid var(--line);border-radius:10px;padding:26px}
+
+/* ===== 评分 ===== */
+.score-layout{display:grid;grid-template-columns:1.05fr 1fr;gap:20px;align-items:stretch}
+#radar{width:100%;height:420px}
+table{width:100%;border-collapse:collapse;font-size:13.5px}
+table.fixed{table-layout:fixed}
+th,td{padding:9px 10px;text-align:left;border-bottom:1px solid var(--line)}
+th{font-size:12px;color:var(--ink-3);font-weight:600;background:#f7f9fc}
+td .bar{height:7px;border-radius:4px;background:var(--brand-soft);position:relative;overflow:hidden}
+td .bar i{position:absolute;left:0;top:0;bottom:0;background:var(--brand);border-radius:4px}
+td.num{font-family:var(--mono);font-weight:700;text-align:right;white-space:nowrap}
+
+/* ===== 架构链路 ===== */
+.flow{display:flex;flex-direction:column;gap:0}
+.flow-row{display:grid;grid-template-columns:120px 1fr;gap:16px;align-items:stretch}
+.flow-tag{display:flex;align-items:center;justify-content:flex-end;
+  font-family:var(--mono);font-size:12px;color:var(--ink-3);padding-right:6px}
+.flow-box{background:#f7f9fc;border:1px solid var(--line);border-left:3px solid var(--brand);
+  border-radius:8px;padding:13px 18px;margin-bottom:10px}
+.flow-box b{font-size:14px}
+.flow-box p{font-size:12.5px;color:var(--ink-2);margin-top:2px}
+.flow-arrow{color:var(--ink-3);font-size:14px;text-align:center;margin:-4px 0 6px 136px}
+
+/* ===== 亮点 / 问题 ===== */
+.item-list{display:flex;flex-direction:column;gap:14px}
+.item{display:grid;grid-template-columns:64px 1fr;gap:16px;background:var(--paper);
+  border:1px solid var(--line);border-radius:10px;padding:18px 22px}
+.item .badge{font-family:var(--mono);font-size:11.5px;font-weight:700;height:fit-content;
+  padding:4px 8px;border-radius:5px;text-align:center;white-space:nowrap}
+.badge.good{background:var(--good-bg);color:var(--good)}
+.badge.p1{background:var(--bad-bg);color:var(--bad)}
+.badge.p2{background:var(--warn-bg);color:var(--warn)}
+.badge.p3{background:#eceff3;color:var(--ink-2)}
+.item h3{font-size:15px;margin-bottom:4px}
+.item p{font-size:13.5px;color:var(--ink-2)}
+.item code{font-family:var(--mono);font-size:12px;background:#f2f5f9;padding:1px 6px;border-radius:4px;color:var(--brand)}
+.item .evi{margin-top:8px;background:#f7f9fc;border:1px solid var(--line);border-radius:6px;
+  padding:10px 14px;font-size:12.5px;color:var(--ink-2)}
+.item .evi b{color:var(--ink)}
+
+/* ===== 建议表 ===== */
+.adv-table td:first-child{font-weight:600;white-space:nowrap}
+.tag-cell{font-family:var(--mono);font-size:11px;font-weight:700;padding:3px 8px;border-radius:5px;white-space:nowrap}
+.tag-cell.p1{background:var(--bad-bg);color:var(--bad)}
+.tag-cell.p2{background:var(--warn-bg);color:var(--warn)}
+.tag-cell.p3{background:#eceff3;color:var(--ink-2)}
+.tag-cell.done{background:var(--good-bg);color:var(--good)}
+
+/* ===== 总评 ===== */
+.summary{background:linear-gradient(135deg,#f6f9fc,#eef3f9);border:1px solid var(--line);
+  border-radius:10px;padding:28px 30px}
+.summary p{font-size:14.5px;color:var(--ink-2);margin-bottom:12px}
+.summary p:last-child{margin-bottom:0}
+.summary b{color:var(--ink)}
+footer.foot{text-align:center;font-size:12px;color:var(--ink-3);margin-top:50px;
+  font-family:var(--mono)}
+
+@media(max-width:860px){
+  .metrics{grid-template-columns:repeat(2,1fr)}
+  .score-layout{grid-template-columns:1fr}
+  #radar{height:340px}
+  h1{font-size:29px}
+  .flow-row{grid-template-columns:1fr;gap:4px}
+  .flow-tag{justify-content:flex-start}
+  .flow-arrow{margin-left:0;text-align:left}
+  .item{grid-template-columns:1fr;gap:8px}
+  .item p{font-size:14px}
+  .flow-box p,.item .evi,td,th{font-size:13px}
+  .card{padding:18px}
+}
+</style>
+</head>
+<body>
+
+<header class="report-head">
+  <div class="wrap">
+    <div class="eyebrow">Software Practice · Project Audit Report · 复测校准版</div>
+    <h1>job-crawler 项目评估报告</h1>
+    <p class="head-sub">招聘数据采集 · 统计分析 · 机器学习建模 · AI 求职建议全链路平台（Flask + Playwright + scikit-learn + LLM）</p>
+    <div class="head-grid">
+      <div class="score-card">
+        <div class="score-num">8.4<small> / 10</small></div>
+        <div class="score-label">综合评分（复验后 · 9 维度加权）</div>
+      </div>
+      <div class="verdict-card">
+        <b>总体结论：</b>这是一个完成度与工程化程度明显超出普通课程作业水平的项目——分层架构清晰、301 个测试实测全部通过、CI/Docker/安全机制齐备、文档体系完整。初评的两个主要扣分项中，<b>经验字段口径错配已修复并复验</b>（交叉图与建模曲线恢复正常，分类器 macro-F1 0.361→0.386）；剩余待办是<b>真实 API 密钥轮换</b>，须在提交/分享前人工完成。
+      </div>
+    </div>
+  </div>
+</header>
+
+<div class="wrap">
+
+<!-- ===== 关键指标 ===== -->
+<div class="metrics">
+  <div class="metric"><b>~12,200</b><span>源代码行数（含模板与静态）</span></div>
+  <div class="metric"><b>22</b><span>Python 模块（四层）</span></div>
+  <div class="metric"><b>10</b><span>Web 页面 / 17 条路由</span></div>
+  <div class="metric"><b>301</b><span>测试用例（实测全通过）</span></div>
+  <div class="metric"><b>960</b><span>数据库在库岗位记录</span></div>
+</div>
+
+<!-- ===== 评分 ===== -->
+<section id="scores">
+  <div class="sec-title"><span class="idx">01</span><h2>维度评分</h2></div>
+  <div class="score-layout">
+    <div class="card"><div id="radar"></div></div>
+    <div class="card">
+      <table class="fixed">
+        <colgroup><col style="width:42%"><col style="width:20%"><col style="width:38%"></colgroup>
+        <thead><tr><th>评估维度</th><th style="text-align:right">评分</th><th>水平条</th></tr></thead>
+        <tbody id="score-tbody"></tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<!-- ===== 架构链路 ===== -->
+<section id="arch">
+  <div class="sec-title"><span class="idx">02</span><h2>架构与数据链路</h2></div>
+  <div class="card">
+    <div class="flow">
+      <div class="flow-row"><div class="flow-tag">展示层</div>
+        <div class="flow-box"><b>app.py + templates/ + static/</b><p>17 条路由、10 个 Jinja2 页面、ECharts 可视化、米色/深色双主题；CSRF、限流、缓存集中管理</p></div></div>
+      <div class="flow-arrow">▼</div>
+      <div class="flow-row"><div class="flow-tag">Agent 层</div>
+        <div class="flow-box"><b>agent_core.py · agent_tools.py · resume_parser.py</b><p>DeepSeek → 通义千问双模型 fallback、指数退避重试；10 个工具函数；PDF/DOCX 简历解析</p></div></div>
+      <div class="flow-arrow">▼</div>
+      <div class="flow-row"><div class="flow-tag">建模层</div>
+        <div class="flow-box"><b>modeling/（7 个模块）</b><p>KMeans 聚类（轮廓系数选 k）、薪资档位三模型 CV 选优、技能热力图、岗位相似度、薪资曲线、学历溢价</p></div></div>
+      <div class="flow-arrow">▼</div>
+      <div class="flow-row"><div class="flow-tag">分析层</div>
+        <div class="flow-box"><b>analysis/（7 个模块）</b><p>薪资/学历/经验/城市单维统计与交叉分析；职位规则分类（5 层优先级）；统一口径工具函数</p></div></div>
+      <div class="flow-arrow">▼</div>
+      <div class="flow-row"><div class="flow-tag">数据层</div>
+        <div class="flow-box"><b>python_job_scraper.py · salary_parser.py · exper_parser.py</b><p>Playwright + stealth 对抗 WAF、随机延时、去重与增量保存；薪资归一化为千元/月，经验归一化为 5 个有序档位（全项目唯一口径入口）</p></div></div>
+    </div>
+    <p style="font-size:12.5px;color:var(--ink-3);margin-top:14px">硬约束：依赖只能自上而下（data → analysis → modeling → agent），下层禁止引用上层。采集与展示分离，爬虫可独立定期运行。<b style="color:var(--ink-2)">复测：全量扫描 26 个源码文件的 import 关系，无一处向上依赖（16 处 config 引用属横切基础设施）。</b></p>
+  </div>
+</section>
+
+<!-- ===== 亮点 ===== -->
+<section id="strengths">
+  <div class="sec-title"><span class="idx">03</span><h2>核心亮点</h2></div>
+  <div class="item-list" id="strength-list"></div>
+</section>
+
+<!-- ===== 问题 ===== -->
+<section id="issues">
+  <div class="sec-title"><span class="idx">04</span><h2>关键问题（按优先级）</h2></div>
+  <div class="item-list" id="issue-list"></div>
+</section>
+
+<!-- ===== 建议 ===== -->
+<section id="actions">
+  <div class="sec-title"><span class="idx">05</span><h2>修复与改进建议</h2></div>
+  <div class="card" style="padding:6px 10px">
+    <table class="fixed adv-table">
+      <colgroup><col style="width:10%"><col style="width:30%"><col style="width:44%"><col style="width:16%"></colgroup>
+      <thead><tr><th>优先级</th><th>事项</th><th>具体做法</th><th>成本</th></tr></thead>
+      <tbody id="adv-tbody"></tbody>
+    </table>
+  </div>
+</section>
+
+<!-- ===== 总评 ===== -->
+<section id="summary">
+  <div class="sec-title"><span class="idx">06</span><h2>总体评价</h2></div>
+  <div class="summary">
+    <p><b>作为软件综合实践课程项目，job-crawler 属于优秀档次（复验后 8.4/10，初评 8.1）。</b>它不是一个只跑通单一脚本的作业，而是一条从真实数据采集、清洗入库、多维统计、机器学习建模到 LLM 应用与 Web 展示的完整工程链路，且每一层都有对应的工程化考量：测试自给自足（临时库夹具，不依赖本地数据库）、CI 三版本矩阵、Docker 分离采集与展示、CSRF / 限流 / 口令保护、多级缓存与空库容错。复测进一步验证了两件文档里写着、代码里容易悄悄破掉的事：分层依赖全量扫描无一处向上引用，17 条路由 GET 冒烟无一条 5xx。</p>
+    <p><b>距离更高分的差距不在功能数量，而在数据口径的严谨性——这一点已修复并复验。</b>51job 改用「X年及以上」口径后，分析层与建模层各自保留的旧映射表失效：交叉图 88.4% 的岗位、分类器 57.4% 的样本被兜底进「经验不限」，成长曲线碎成 19 个档位。修复后口径集中在 <code>data/exper_parser.py</code> 一处，/chart 各经验档均值恢复单调递增，分类器 macro-F1 从 0.361 升到 0.386。</p>
+    <p><b>这次修复暴露的问题比 bug 本身更值得写进报告：</b>250 条用例全绿却接不住它，因为夹具里的经验取值全是旧写法。测试覆盖的是代码路径，不等于线上数据分布——所以本次同时把夹具换成真实分布，并把库中出现过的 36 种写法固化成映射表断言，下次口径再变会先由测试报出来。</p>
+    <p><b>提交/分享前仍须本人处理两件事：</b>① 在 DeepSeek 与阿里云控制台作废并重新签发 <code>.env</code> 里的两把 Key（复测确认密钥未泄漏到其他任何文件，但落盘即视为暴露，删文件不能撤销）；② <code>data.db</code> 与 <code>cache/</code> 都被 gitignore，评审若克隆仓库跑起来是空库，按 zip 提交须包含 <code>data.db</code>。</p>
+  </div>
+</section>
+
+<footer class="foot">
+  Evaluation method: 301 pytest cases (all passed) · 960-record DB audit · 17-route live smoke test · secret byte-scan · import-graph check · env: system Python 3.13.2 / sklearn 1.9.0 · 2026-09-23 (re-measured)
+  <br>2026-09-26 第二次复测确认：代码零变动（HEAD 452c549），301 用例全过（38.7s）、960 条记录与 36 种经验写法一致、5 档口径有效（经验不限 128 条 = 13.3%）、17 条 GET 路由无 5xx、双密钥仅存于 .env、25 模块分层无向上依赖、模型缓存加载无版本告警 —— 结论不变，仍差人工轮换密钥。
+</footer>
+
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/echarts@5.5.1/dist/echarts.min.js"></script>
+<script>
+// ===== 数据：评分 =====
+var SCORES=[
+  ["功能完整性",9.0],["架构与分层",8.6],["代码质量",8.2],
+  ["测试体系",9.2],["工程化与部署",9.0],["数据质量",7.5],
+  ["建模有效性",8.0],["安全性",7.0],["文档完备性",9.5]
+];
+// ===== 评分表 =====
+var tbody=document.getElementById('score-tbody');
+SCORES.forEach(function(r){
+  var pct=Math.round(r[1]/10*100);
+  var tr=document.createElement('tr');
+  tr.innerHTML='<td>'+r[0]+'</td><td class="num">'+r[1].toFixed(1)+'</td>'+
+    '<td><div class="bar"><i style="width:'+pct+'%"></i></div></td>';
+  tbody.appendChild(tr);
+});
+
+// ===== 雷达图 =====
+var chart=echarts.init(document.getElementById('radar'));
+chart.setOption({
+  title:{text:'九维度评分雷达',left:'center',top:6,
+    textStyle:{fontSize:14,color:'#1b2430',fontWeight:600}},
+  tooltip:{trigger:'item',triggerOn:'click',renderMode:'richText',confine:true},
+  radar:{
+    center:['50%','56%'],radius:'63%',
+    indicator:SCORES.map(function(r){return {name:r[0],max:10}}),
+    axisName:{color:'#465364',fontSize:11.5},
+    splitLine:{lineStyle:{color:'#dde3ec'}},
+    splitArea:{areaStyle:{color:['#ffffff','#f5f8fc']}},
+    axisLine:{lineStyle:{color:'#cfd8e5'}}
+  },
+  series:[{
+    type:'radar',
+    data:[{value:SCORES.map(function(r){return r[1]}),name:'项目评分',
+      areaStyle:{color:'rgba(23,64,107,.18)'},
+      lineStyle:{color:'#17406b',width:2},
+      itemStyle:{color:'#17406b'}}]
+  }]
+});
+window.addEventListener('resize',function(){chart.resize()});
+
+// ===== 亮点 =====
+var STRENGTHS=[
+  ['全链路工程闭环','从 Playwright 真实采集、薪资归一化清洗、SQLite 入库，到 Pandas 多维统计、sklearn 聚类/分类、LLM 求职建议，再到 10 个 Web 页面呈现，一条链路完整跑通，而非孤立的单点脚本。'],
+  ['测试体系扎实','301 个用例实测全部通过（42 秒，本机 Python 3.13.2）；conftest 以临时 SQLite 库 + 16 条样例数据提供夹具，样例已覆盖 51job 线上两类经验写法；<code>tests/test_exper_parser.py</code> 把库里真实出现过的 36 种经验写法固化为映射表断言。测试套件完全自给自足、不依赖本地 data.db，无库环境下相关用例自动 skip。'],
+  ['工程化配套超课程水准','GitHub Actions 在 Python 3.10/3.11/3.12 三版本矩阵跑 CI；提供 Dockerfile + docker-compose（采集与展示分离）、Makefile、旋转文件日志（5MB 切片、保留 3 份）。'],
+  ['安全机制成体系','Flask-WTF 全站 CSRF 校验、Flask-Limiter 全局限流并对 /collect 单独收紧（5/小时）、采集口令保护、URL 数值参数正整数校验；Agent 工具参数由代码预定义，不经 LLM 动态传参。'],
+  ['容错与优雅降级','空数据库首次启动不崩溃、页面友好提示采集；未配置任何密钥时分析与建模功能完整离线可用；DeepSeek → 通义千问自动 fallback、指数退避重试；重依赖懒加载 + 首页静默预热。'],
+  ['文档与协作规范完备','README、ARCHITECTURE、CONFIGURATION、CHANGELOG、CONTRIBUTING、SECURITY、CODE_OF_CONDUCT 一应俱全；架构文档明确记录分层硬约束、数据模型与关键设计决策及其踩坑背景。']
+];
+var sl=document.getElementById('strength-list');
+STRENGTHS.forEach(function(d,i){
+  var el=document.createElement('div');el.className='item';
+  el.innerHTML='<div class="badge good">亮点 '+(i+1)+'</div>'+
+    '<div><h3>'+d[0]+'</h3><p>'+d[1]+'</p></div>';
+  sl.appendChild(el);
+});
+
+// ===== 问题 =====
+var ISSUES=[
+  ['good','P1 · 已修复','经验字段口径错配：建模链路 57.4%、交叉图表 88.4% 岗位曾被错误归档',
+    '51job 现用「3年及以上」「无需经验」「在校生/应届生」等下限式写法，而 <code>analysis/cross.py</code>、<code>modeling/salary_curve.py</code>、<code>modeling/salary_classifier.py</code> 各自维护一份旧的「1-3年」区间式映射表。复测确认三处失效模式并不相同：交叉图用精确等值查表，连「1年」「2年」都兜不住；成长曲线保留原始字符串自成档位；只有分类器统一回退为「经验不限」。',
+    '<b>实测证据（修复前 → 修复后）：</b>新增 <code>data/exper_parser.py</code>（按文本最低年限归入 5 个有序档位）作为全项目唯一口径，三处消费方共用。<br>· /chart 薪资×经验：「经验不限」<b>849 条（88.4%）→ 128 条（13.3%）</b>，各档均值由虚高的 17.9 恢复为单调递增 14.2 / 14.0 / 19.8 / 25.0 / 27.4。<br>· /ml 经验-薪资曲线：19 个锯齿档位（含 232 条的「3年及以上」被排到「应届生」之前）→ 5 个有序档位，中位数 10.0 → 12.4 → 16.0 → 22.5。<br>· 薪资分类器：551/960（57.4%）的经验特征落入「经验不限」→ 全部有效归档；同数据同划分重训后 test accuracy 0.422 → 0.438、macro-F1 0.361 → 0.386。<br><b>根因不止映射表：</b>旧夹具的 exper 只有「1-3年」「3-5年」「经验不限」三种写法，而库里真实占比最高的「X年及以上」在全部测试中出现 <b>0 次</b>——这就是 250 条用例全绿却漏掉线上口径漂移的原因。现夹具扩为 16 条、覆盖两类写法，并补 51 条口径用例（250 → 301）。'],
+  ['p1','P1 · 待人工处置','.env 含真实 API 密钥，随项目目录分发',
+    '项目根目录 <code>.env</code> 中保存了 DeepSeek 与通义千问的真实 API Key（各 35 字符）。虽然 .gitignore 已正确排除、Git 未跟踪该文件，但项目以文件夹形式拷贝（课程提交、网盘分享）时密钥会随目录一同分发。',
+    '<b>复测范围：</b>对两把 Key 做全库字节级扫描（排除 venv/.git），<b>除 .env 本体外，logs/、docs/、README、AI协作过程记录.docx 等任何文件中均无残留</b>，Git 跟踪文件里出现的 <code>sk-</code> 全为占位示例。<code>SECURITY.md</code> 已补「分享 / 提交打包」条目。<b>仍须本人操作：</b>到 DeepSeek 与阿里云控制台作废并重新签发这两把 Key——密钥已落盘即应视为暴露，仅删除文件不能撤销。'],
+  ['p2','P2 · 中','数据清洗残留：面议记为 0、重复职位未收敛',
+    '「面议」岗位在 <code>salary_parser</code> 中被记为 (0, 0)，共 3 条；按 职位+公司+城市 判定存在 8 组重复（多出 8 行）。exper 字段在库中保留 36 种原始写法，现统一由读侧口径归一，库内保留原文以便口径再变时无需重采。',
+    '<b>实测证据：</b>复测确认 <b>0 条薪资倒挂</b>（salary_max &lt; salary_min 无记录）、无单侧为 0、无 NULL，初评所称「倒挂」不成立；最高薪资 200 千元/月（AI应用软件开发工程师 · 南京丹书科技），属可解释的高阶岗位而非脏数据。'],
+  ['p2','P2 · 中','app.py 单体偏胖、全局可变状态集中',
+    '<code>app.py</code> 达 1561 行（非空 1355 行），集中了路由注册、采集调度、15+ 个模块级缓存字典、AI 调用组装与渲染辅助逻辑；缓存与对话状态（_conversations、_review_store）存于进程内存，多 worker 部署时不共享，也增加测试隔离成本。',
+    '<b>改进方向：</b>按功能拆分为 Flask Blueprint（list/chart/ml/advice/collect），缓存收敛到独立模块，会话类状态考虑服务端存储。<b>评分口径说明：</b>课程交付以本地单进程运行为准，本项属工程债，不影响演示与结论，列为赛后事项。'],
+  ['p3','P3 · 复测不成立','初评所称 sklearn 模型缓存版本漂移当前不可复现',
+    '初评记录到 InconsistentVersionWarning（缓存 1.9.0 训练、环境 1.9.1 加载）。复测环境为本机 Python 3.13.2 + <b>sklearn 1.9.0</b>，加载 cache/ 下两个 joblib 均<b>无任何版本告警</b>；另一可能是初评借用了已损坏的 venv（见下一项）中的解释器。',
+    '<b>处置：</b>结论降级为「环境相关、当前不可复现」。因本次经验口径变更，旧分类器缓存已归档至 <code>backups/salary_classifier.joblib.pre-exper-bucket</code>，cache/ 下为新模型。「加载失败或版本不符即回退重训」保留为长期建议。'],
+  ['p3','P3 · 低','venv 为其他机器创建，当前环境不可用',
+    '<code>venv/pyvenv.cfg</code> 记录 home = D:\\、executable = D:\\python.exe，command 显示原始创建路径为 <code>f:\\Desktop\\project1-enhanced</code>，属跨机器 / 跨盘拷贝残留。',
+    '<b>实测证据：</b>执行 <code>venv/Scripts/python.exe -V</code> 报 <code>did not find executable at \'D:\\python.exe\'</code>，确认不可用；本报告全部数字改由本机系统 Python 3.13.2 复测。<b>处置建议：</b>本机用 Python 3.10+ 重建虚拟环境；虚拟环境本就不应随项目分发（.gitignore 已排除 venv/）。']
+];
+var il=document.getElementById('issue-list');
+ISSUES.forEach(function(d){
+  var el=document.createElement('div');el.className='item';
+  el.innerHTML='<div class="badge '+d[0]+'">'+d[1]+'</div>'+
+    '<div><h3>'+d[2]+'</h3><p>'+d[3]+'</p><div class="evi">'+d[4]+'</div></div>';
+  il.appendChild(el);
+});
+
+// ===== 建议表 =====
+var ACTIONS=[
+  ['done','经验字段口径统一','新增 <code>data/exper_parser.py</code>（按最低年限归入 5 档），cross / salary_curve / salary_classifier / salary_predict 四处共用；库内仍存原始文本','已交付'],
+  ['done','测试夹具与口径回归','夹具 10 → 16 条并覆盖「X年及以上」等线上写法；新增 <code>tests/test_exper_parser.py</code> 固化 36 种写法，用例 250 → 301','已交付'],
+  ['done','文档与缓存同步','SECURITY.md 补打包条目；README / ARCHITECTURE / CHANGELOG 记录口径决策；旧模型缓存归档 backups/ 并重训','已交付'],
+  ['p1','轮换 API 密钥','DeepSeek 与阿里云控制台作废旧 Key 后重新签发；提交/分享目录删除 <code>.env</code>，只留 <code>.env.example</code>','15 分钟'],
+  ['p2','明确交付形态','<code>data.db</code> 与 <code>cache/</code> 均被 gitignore，克隆后是空库：以 zip 提交时须包含 data.db，或在仓库放一份脱敏样例库','15 分钟'],
+  ['p2','入库前清洗','面议 3 条按类别排除而非记 0；按 jobId+公司收敛 8 组重复；对 200K 以上高阶岗位做离群说明','2–3 小时'],
+  ['p3','拆分 app.py','按 Blueprint 拆分路由模块，缓存与会话状态收敛到独立模块','约半天'],
+  ['p3','重建本机虚拟环境','本机 Python 3.10+ 重新 <code>python -m venv</code> 并安装依赖','15 分钟'],
+  ['p3','路线图加分项','增量更新替代整表替换、多数据源接入、岗位数据时间序列','长期']
+];
+var at=document.getElementById('adv-tbody');
+ACTIONS.forEach(function(d){
+  var tr=document.createElement('tr');
+  tr.innerHTML='<td><span class="tag-cell '+d[0]+'">'+d[0].toUpperCase()+'</span></td>'+
+    '<td>'+d[1]+'</td><td>'+d[2]+'</td><td style="font-family:var(--mono);font-size:12px">'+d[3]+'</td>';
+  at.appendChild(tr);
+});
+
+</script>
+</body>
+</html>
