@@ -875,6 +875,35 @@ async (params) => {
 """
 
 
+# 浏览器启动参数: 与 WAF 对抗相关的隐藏自动化痕迹参数集中放这里,
+# 常规启动和"系统 Chrome 回退"两条路共用, 保证指纹一致
+LAUNCH_ARGS = [
+    '--no-sandbox',
+    '--disable-dev-shm-usage',
+    '--disable-blink-features=AutomationControlled',
+    '--disable-features=IsolateOrigins,site-per-process',
+    '--disable-infobars',
+    '--window-size=1920,1080',
+    '--lang=zh-CN',
+]
+
+
+def launch_browser(p):
+    """启动 Chromium: 优先用 playwright 自带内核(Docker 里 playwright install 装的)。
+
+    本机没执行过 playwright install 时会抛 "Executable doesn't exist",
+    此时退回系统 Chrome(channel='chrome'), 让本地开发环境也能跑采集;
+    两套内核共用同一组 LAUNCH_ARGS, 反自动化指纹保持一致。
+    """
+    try:
+        return p.chromium.launch(headless=True, args=LAUNCH_ARGS)
+    except Exception as e:
+        if 'Executable doesn' in str(e):
+            _logger.warning('playwright 自带内核缺失(%s), 退回系统 Chrome', str(e).splitlines()[0])
+            return p.chromium.launch(headless=True, channel='chrome', args=LAUNCH_ARGS)
+        raise
+
+
 def resolve_city_code(city_name):
     """把用户输入的城市名转成51job城市代码,找不到返回None"""
     city_name = city_name.strip()
@@ -993,18 +1022,7 @@ def scrape_jobs(keyword, cities, pages_per_city=3, sort_type='0', progress_callb
     pages_collected = {}  # city → 实际翻到的页数
 
     with sync_playwright() as p:
-        browser = p.chromium.launch(
-            headless=True,
-            args=[
-                '--no-sandbox',
-                '--disable-dev-shm-usage',
-                '--disable-blink-features=AutomationControlled',
-                '--disable-features=IsolateOrigins,site-per-process',
-                '--disable-infobars',
-                '--window-size=1920,1080',
-                '--lang=zh-CN',
-            ],
-        )
+        browser = launch_browser(p)
         context = browser.new_context(
             user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
             viewport={'width': 1920, 'height': 1080},
