@@ -9,6 +9,10 @@ scrape_jobs() 拿到结果,不需要再改代码。
 本文件未直接复制该仓库代码,而是参考其"Playwright过WAF + 浏览器内fetch调用
 真实API"的思路自行重写)。
 
+反爬策略设计另外借鉴 Scrapling(https://github.com/D4Vinci/Scrapling, BSD-3):
+自适应限速(AutoThrottle)、封禁信号一等公民化、被动网络捕获、代理轮换,
+均为借鉴思想后的自研实现(见 data/adaptive.py),未引入 Scrapling 依赖。
+
 依赖安装: pip install playwright playwright-stealth
          playwright install chromium
 
@@ -30,6 +34,11 @@ from datetime import datetime, timezone
 
 from playwright.sync_api import sync_playwright
 from playwright_stealth import Stealth
+
+from data.adaptive import (
+    AdaptiveThrottle, ApiCapture, ProxyRotator, Signal,
+    classify_api_result, extract_job_items, resolve_proxies,
+)
 
 _logger = logging.getLogger('job_analysis')
 
@@ -875,6 +884,25 @@ async (params) => {
 """
 
 
+# WAF 放行检测的多级探测脚本(借鉴 Scrapling auto-heal 选择器思想, 简化实现):
+# 一级 = 旧版精确选择器; 二级 = class 特征回退 —— 51job 前端一旦改版,
+# 精确选择器会静默失效导致"永远等不到放行", 特征匹配提供降级兜底;
+# 三级 = 等待循环超时后放弃等待 DOM, 直接以搜索 API 可用性为准(见 scrape_jobs)
+JS_WAF_PROBE = """
+() => {
+    // 一级: 精确选择器(与旧版一致)
+    let nodes = document.querySelectorAll('.joblist-item, .j_joblist, .el');
+    if (nodes.length >= 1) return {tier: 1, count: nodes.length};
+    // 二级: 特征回退 —— class 名含 joblist/job-item 的节点, 大小写不敏感
+    nodes = document.querySelectorAll(
+        '[class*="joblist" i], [class*="job-item" i], [class*="job_item" i]'
+    );
+    if (nodes.length >= 1) return {tier: 2, count: nodes.length};
+    return {tier: 0, count: 0};
+}
+"""
+
+
 # 浏览器启动参数: 与 WAF 对抗相关的隐藏自动化痕迹参数集中放这里,
 # 常规启动和"系统 Chrome 回退"两条路共用, 保证指纹一致
 LAUNCH_ARGS = [
@@ -888,20 +916,40 @@ LAUNCH_ARGS = [
 ]
 
 
-def launch_browser(p):
+def launch_browser(p, proxy=None):
     """启动 Chromium: 优先用 playwright 自带内核(Docker 里 playwright install 装的)。
 
     本机没执行过 playwright install 时会抛 "Executable doesn't exist",
     此时退回系统 Chrome(channel='chrome'), 让本地开发环境也能跑采集;
     两套内核共用同一组 LAUNCH_ARGS, 反自动化指纹保持一致。
+
+    proxy: 可选代理服务器地址(如 'http://127.0.0.1:7890'), None=直连(旧行为)。
+    能力接口借鉴 Scrapling 的 ProxyRotator, 由 scrape_jobs 解析后传入。
     """
+    kwargs = dict(headless=True, args=LAUNCH_ARGS)
+    if proxy:
+        kwargs['proxy'] = {'server': proxy}
     try:
-        return p.chromium.launch(headless=True, args=LAUNCH_ARGS)
+        return p.chromium.launch(**kwargs)
     except Exception as e:
         if 'Executable doesn' in str(e):
             _logger.warning('playwright 自带内核缺失(%s), 退回系统 Chrome', str(e).splitlines()[0])
-            return p.chromium.launch(headless=True, channel='chrome', args=LAUNCH_ARGS)
+            return p.chromium.launch(headless=True, channel='chrome', **kwargs)
         raise
+
+
+# 代理轮换器缓存: 同一进程内多次采集、相同代理列表共用一个轮换器,
+# 于是第1次采集用第1个代理, 第2次用第2个……循环往复(借鉴 Scrapling
+# ProxyRotator 的轮询策略), 避免单 IP 长期高频访问
+_PROXY_ROTATORS = {}
+
+
+def _pick_proxy(proxies):
+    """为本次采集从代理列表轮换取一个地址; 列表为空返回 None(直连)。"""
+    if not proxies:
+        return None
+    rotator = _PROXY_ROTATORS.setdefault(tuple(proxies), ProxyRotator(proxies))
+    return rotator.next()
 
 
 def resolve_city_code(city_name):
@@ -985,7 +1033,7 @@ def _evaluate_with_timeout(page, js_func, params, timeout_ms=28000):
         raise  # 其他异常继续上抛
 
 
-def scrape_jobs(keyword, cities, pages_per_city=3, sort_type='0', progress_callback=None, save_callback=None):
+def scrape_jobs(keyword, cities, pages_per_city=3, sort_type='0', progress_callback=None, save_callback=None, proxies=None):
     """
     核心函数: 给定关键词 + 城市名列表,实时采集51job数据。
 
@@ -998,6 +1046,9 @@ def scrape_jobs(keyword, cities, pages_per_city=3, sort_type='0', progress_callb
                 用于在网页上实时显示采集进度(比如Flask里可以传一个打印日志的函数)
         save_callback: 可选,一个函数(city, jobs_for_city) -> None,
                 每采集完一个城市后调用,用于增量写入DB(防Ctrl+C丢数据)
+        proxies: 可选,代理服务器列表(如 ['http://127.0.0.1:7890'])。
+                默认从环境变量 COLLECT_PROXIES(逗号分隔多个)/COLLECT_PROXY
+                解析,均未配置则直连;多个代理时同进程多次采集自动轮换
 
     返回: list of dict,字段跟项目数据库schema一致
           (post, company, address, salary_raw, edu, exper, dateT, scrape_date)
@@ -1021,8 +1072,14 @@ def scrape_jobs(keyword, cities, pages_per_city=3, sort_type='0', progress_callb
     all_seen = set()
     pages_collected = {}  # city → 实际翻到的页数
 
+    # 代理轮换(借鉴 Scrapling ProxyRotator): 未显式传参时从
+    # COLLECT_PROXIES / COLLECT_PROXY 环境变量解析; 列表为空 = 直连(旧行为)
+    proxy = _pick_proxy(resolve_proxies() if proxies is None else list(proxies))
+
     with sync_playwright() as p:
-        browser = launch_browser(p)
+        if proxy:
+            _logger.info('使用代理出口: %s (本次采集全程经由该代理)', proxy)
+        browser = launch_browser(p, proxy=proxy)
         context = browser.new_context(
             user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
             viewport={'width': 1920, 'height': 1080},
@@ -1049,6 +1106,15 @@ def scrape_jobs(keyword, cities, pages_per_city=3, sort_type='0', progress_callb
         # 设置页面默认超时30秒: evaluate/navigation等操作超过30s自动抛异常
         # 解决最后一页JS fetch挂死导致Python主线程无限阻塞的问题
         page.set_default_timeout(30000)
+
+        # 被动网络捕获(借鉴 Scrapling record_requests): 监听页面自身发出的
+        # search-pc 响应。首页/搜索页导航后官方前端本来就会调一次搜索 API,
+        # 捕获命中时取数可以完全不经注入脚本; 注册失败不影响采集主流程
+        capture = ApiCapture()
+        try:
+            page.on('response', capture.on_response)
+        except Exception as reg_err:
+            _logger.warning('注册被动捕获失败(不影响采集, 仅走注入路径): %s', reg_err)
 
         # 第一步: 先访问 51job 首页预热, 拿到 WAF 放行的 cookie
         # 用 wait_until='commit' 只要导航发生即可, 不等整个 DOM 加载完(首页太重)
@@ -1084,14 +1150,13 @@ def scrape_jobs(keyword, cities, pages_per_city=3, sort_type='0', progress_callb
         waf_passed = False
         for round_idx in range(35):
             try:
-                # 多信号检测: joblist 出现即认为通过
-                cnt = page.evaluate(
-                    "document.querySelectorAll('.joblist-item, .j_joblist, .el').length"
-                )
-                if cnt >= 1:
+                # 多级检测(借鉴 Scrapling auto-heal 思想): 一级精确选择器,
+                # 二级 class 特征回退, 避免站点改版后精确选择器静默失效
+                probe = page.evaluate(JS_WAF_PROBE)
+                if probe and probe.get('count', 0) >= 1:
                     waf_passed = True
                     elapsed = round_idx * 0.5 if round_idx < 15 else 7.5 + (round_idx - 15)
-                    _logger.info('WAF验证通过 (耗时约 %.1f 秒)', elapsed)
+                    _logger.info('WAF验证通过 (层级%d, 耗时约 %.1f 秒)', probe.get('tier', 1), elapsed)
                     break
             except Exception:
                 pass
@@ -1104,11 +1169,16 @@ def scrape_jobs(keyword, cities, pages_per_city=3, sort_type='0', progress_callb
             wait_s = 0.5 if round_idx < 15 else 1.0
             time.sleep(wait_s)
         else:
-            _logger.warning('WAF验证超时(30s), 51job可能拦截了请求, 尝试继续...')
+            # 三级回退: 放弃等待 DOM, 数据直接以搜索 API 可用性为准
+            _logger.warning('WAF验证超时(30s), 放弃等待列表渲染, 直接以搜索API可用性为准...')
 
         if waf_passed:
             # 通过 WAF 后再模拟一次人类停留, 让会话更自然
             time.sleep(random.uniform(0.5, 1.0))
+
+        # 页间自适应限速(借鉴 Scrapling AutoThrottle): 代替旧版固定随机延迟,
+        # 节奏由每次请求回灌的封禁信号动态调节(实现见 data/adaptive.py)
+        throttle = AdaptiveThrottle()
 
         now = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')
 
@@ -1122,80 +1192,108 @@ def scrape_jobs(keyword, cities, pages_per_city=3, sort_type='0', progress_callb
                     # 单页硬超时: 每页(含重试)最多60秒, 超时跳过该城市后续页
                     page_start = time.time()
                     params = build_api_params(keyword, code, pg, sort_type)
-                    # 前3页快速翻(模拟正常浏览),后面逐渐放慢避免触发风控
-                    delay = random.uniform(0.1, 0.3) if pg <= 3 else random.uniform(0.3, 0.6)
-                    time.sleep(delay)
+                    # 页间自适应延迟(借鉴 Scrapling AutoThrottle): 代替旧版固定
+                    # 随机区间, 等待时长由之前页面的封禁信号决定——健康时贴近
+                    # 下限快速翻页, 被限流/超时时自动放慢, 恢复后回落
+                    time.sleep(throttle.next_delay())
 
-                    # 单页重试机制: 最多尝试3次, 失败时模拟人类行为后重试
-                    data = None
-                    page_dead = False
-                    for attempt in range(3):
-                        # 检查是否超出单页总时限
-                        if time.time() - page_start > 60:
-                            _logger.warning('[%s] 第%d页超过60秒硬超时, 跳过该城市后续页', city, pg)
-                            break
-                        # 如果上一轮页面已失效, 先重建
-                        if page_dead:
-                            try:
-                                page.close()
-                            except Exception:
-                                pass
-                            page = context.new_page()
-                            page.set_default_timeout(30000)
-                            # 重建后需重新导航到搜索页, 否则 cookie/上下文丢失
-                            try:
-                                search_url = (
-                                    f"https://we.51job.com/pc/search?keyword={keyword}&keywordType=2"
-                                    f"&jobArea={code}&issuedDate=4&pageNum={pg}&pageSize=20"
-                                )
-                                page.goto(search_url, timeout=30000, wait_until='commit')
-                                time.sleep(random.uniform(1.5, 2.5))
-                            except Exception as nav_err:
-                                _logger.warning('[%s] 页面重建后导航失败: %s', city, nav_err)
-                            _logger.info('[%s] 重建浏览器页面(上次调用超时/断连)', city)
-                            page_dead = False
-                        try:
-                            data, page_dead = _evaluate_with_timeout(page, JS_FETCH_API, params, timeout_ms=28000)
-                        except Exception as e:
-                            _logger.warning('[%s] 第%d页 evaluate 异常(尝试%d/3): %s', city, pg, attempt + 1, e)
+                    # 被动捕获优先(借鉴 Scrapling record_requests): 页面导航后
+                    # 官方前端自己发出的 search-pc 响应若已捕获且含数据, 则完全
+                    # 不经注入脚本取数, 注入 fetch 只作为回退路径
+                    data = capture.find(params)
+                    if data is not None:
+                        throttle.on_result(classify_api_result(data))
+                        if not extract_job_items(data):
+                            # 捕获到的响应没数据(空结果页/WAF软拦), 不可信, 回退注入
+                            _logger.info('[%s] 第%d页 被动捕获响应无数据, 回退注入fetch', city, pg)
                             data = None
-                            if attempt < 2:
-                                time.sleep(random.uniform(1.5, 3.0))
-                            continue
+                        else:
+                            _logger.info('[%s] 第%d页 命中被动捕获响应, 跳过注入fetch', city, pg)
 
-                        if page_dead:
-                            # 页面失效(超时/断连), 下一轮重建页面重试
-                            if attempt < 2:
-                                _logger.warning('[%s] 第%d页 调用失效(尝试%d/3): %s, 将重建页面重试...',
-                                                city, pg, attempt + 1, data.get('error', 'unknown') if isinstance(data, dict) else 'unknown')
-                                time.sleep(random.uniform(1.5, 2.5))
-                                continue
-                            else:
-                                _logger.warning('[%s] 第%d页 调用失效(已重试3次), 跳过', city, pg)
-                        elif isinstance(data, dict) and 'error' in data:
-                            if attempt < 2:
-                                _logger.warning('[%s] 第%d页 API 错误(尝试%d/3): %s, 模拟人类行为后重试...',
-                                                city, pg, attempt + 1, data['error'])
-                                # 重试前模拟人类: 滚到底停留再滚回顶
+                    if data is None:
+                        # 注入 fetch 回退路径 + 单页重试机制: 最多尝试3次, 失败时模拟人类行为后重试
+                        page_dead = False
+                        for attempt in range(3):
+                            # 检查是否超出单页总时限
+                            if time.time() - page_start > 60:
+                                _logger.warning('[%s] 第%d页超过60秒硬超时, 跳过该城市后续页', city, pg)
+                                break
+                            # 如果上一轮页面已失效, 先重建
+                            if page_dead:
                                 try:
-                                    page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
-                                    time.sleep(random.uniform(2.0, 4.0))
-                                    page.evaluate("window.scrollTo(0, 0)")
-                                    time.sleep(random.uniform(0.5, 1.0))
+                                    page.close()
                                 except Exception:
                                     pass
-                                time.sleep(random.uniform(1.0, 2.0))
+                                page = context.new_page()
+                                page.set_default_timeout(30000)
+                                # 重建后需重新导航到搜索页, 否则 cookie/上下文丢失
+                                try:
+                                    search_url = (
+                                        f"https://we.51job.com/pc/search?keyword={keyword}&keywordType=2"
+                                        f"&jobArea={code}&issuedDate=4&pageNum={pg}&pageSize=20"
+                                    )
+                                    page.goto(search_url, timeout=30000, wait_until='commit')
+                                    time.sleep(random.uniform(1.5, 2.5))
+                                except Exception as nav_err:
+                                    _logger.warning('[%s] 页面重建后导航失败: %s', city, nav_err)
+                                _logger.info('[%s] 重建浏览器页面(上次调用超时/断连)', city)
+                                page_dead = False
+                            try:
+                                data, page_dead = _evaluate_with_timeout(page, JS_FETCH_API, params, timeout_ms=28000)
+                            except Exception as e:
+                                _logger.warning('[%s] 第%d页 evaluate 异常(尝试%d/3): %s', city, pg, attempt + 1, e)
+                                data = None
+                                # 断连/异常类故障按 TIMEOUT 回灌限速器, 自动放慢节奏
+                                throttle.on_result(Signal.TIMEOUT)
+                                if attempt < 2:
+                                    time.sleep(random.uniform(1.5, 3.0))
                                 continue
-                            else:
-                                _logger.warning('[%s] 第%d页 API 错误(已重试3次): %s', city, pg, data['error'])
-                        break
+
+                            # 封禁信号归类(借鉴 Scrapling 封禁检测)并回灌自适应限速,
+                            # 限速节奏与重试策略消费同一份信号
+                            signal = classify_api_result(data, page_dead)
+                            throttle.on_result(signal)
+                            if signal is not Signal.OK:
+                                _logger.info('[%s] 第%d页 封禁信号=%s, 自适应延迟调整为 %.2fs',
+                                             city, pg, signal.value, throttle.current_delay)
+
+                            if page_dead:
+                                # 页面失效(超时/断连), 下一轮重建页面重试
+                                if attempt < 2:
+                                    _logger.warning('[%s] 第%d页 调用失效(尝试%d/3): %s, 将重建页面重试...',
+                                                    city, pg, attempt + 1, data.get('error', 'unknown') if isinstance(data, dict) else 'unknown')
+                                    time.sleep(random.uniform(1.5, 2.5))
+                                    continue
+                                else:
+                                    _logger.warning('[%s] 第%d页 调用失效(已重试3次), 跳过', city, pg)
+                            elif isinstance(data, dict) and 'error' in data:
+                                if attempt < 2:
+                                    _logger.warning('[%s] 第%d页 API 错误(尝试%d/3): %s, 模拟人类行为后重试...',
+                                                    city, pg, attempt + 1, data['error'])
+                                    # 重试前模拟人类: 滚到底停留再滚回顶
+                                    try:
+                                        page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+                                        time.sleep(random.uniform(2.0, 4.0))
+                                        page.evaluate("window.scrollTo(0, 0)")
+                                        time.sleep(random.uniform(0.5, 1.0))
+                                    except Exception:
+                                        pass
+                                    if signal is Signal.BLOCKED:
+                                        # 明确被拦截时退避更久, 给 WAF 一点冷却时间
+                                        time.sleep(random.uniform(3.0, 6.0))
+                                    else:
+                                        time.sleep(random.uniform(1.0, 2.0))
+                                    continue
+                                else:
+                                    _logger.warning('[%s] 第%d页 API 错误(已重试3次): %s', city, pg, data['error'])
+                            break
 
                     if data is None:
                         break
                     if isinstance(data, dict) and 'error' in data:
                         break
 
-                    job_list = data.get('resultbody', {}).get('job', {}).get('items', [])
+                    job_list = extract_job_items(data)
                     if not job_list:
                         break
                     pages_collected[city] += 1
@@ -1276,6 +1374,7 @@ def scrape_jobs(keyword, cities, pages_per_city=3, sort_type='0', progress_callb
 
         page.close()
         browser.close()
+        _logger.info('自适应限速统计: %s', throttle.snapshot())
 
     _logger.info('采集完成: 共 %d 条数据 (关键词=%s, 城市=%s)', len(all_jobs), keyword, cities)
     return all_jobs, pages_collected
