@@ -17,7 +17,7 @@
 
 ![项目演示 · 自动循环播放](docs/images/preview.gif)
 
-[▶ 点击观看完整 150 秒介绍视频（含背景音乐）](docs/video/job-crawler-intro.mp4)
+[▶ 点击观看完整 150 秒介绍视频（含背景音乐）](https://github.com/cloudy-one1/job-crawler/blob/073e58b/docs/video/job-crawler-intro.mp4)
 
 ## 项目简介
 
