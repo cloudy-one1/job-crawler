@@ -17,9 +17,7 @@
 
 ![项目演示 · 自动循环播放](docs/images/preview.gif)
 
-**完整 150 秒介绍视频（含背景音乐）**，点击播放：
-
-![job-crawler 项目介绍视频](docs/video/job-crawler-intro.mp4)
+[▶ 点击观看完整 150 秒介绍视频（含背景音乐）](docs/video/job-crawler-intro.mp4)
 
 ## 项目简介
 
