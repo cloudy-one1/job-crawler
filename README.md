@@ -13,6 +13,14 @@
 
 ---
 
+## 🎬 演示
+
+![项目演示 · 自动循环播放](docs/images/preview.gif)
+
+**完整 150 秒介绍视频（含背景音乐）**，点击播放：
+
+![job-crawler 项目介绍视频](docs/video/job-crawler-intro.mp4)
+
 ## 项目简介
 
 面向 Python 岗位的招聘市场分析平台：用 Playwright 采集 51job 在招岗位，清洗入库后做多维度统计分析（薪资 / 学历 / 经验 / 城市 / 交叉），再用 scikit-learn 做岗位聚类与薪资建模，最后接入大语言模型，让数据结论变成可执行的求职建议，全部通过 Flask 网页端呈现。
